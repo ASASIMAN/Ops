@@ -140,6 +140,13 @@ contents of `supabase/migrations/0001_sales_schema.sql` → run.
 
 ### Triggering a sync manually
 
+Easiest: click **"Sync now"** on the `/dashboard` page itself - it runs the
+sync directly (a Server Action, not an HTTP call), so `CRON_SECRET` never
+has to leave the server, and the page shows the result (success + order
+count, or the specific error) right above the filters.
+
+Or, from the command line:
+
 ```bash
 curl -X POST "https://<your-deployment>/api/sync/odoo?days=7" \
   -H "Authorization: Bearer <CRON_SECRET>"

@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { syncNowAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -57,13 +58,33 @@ export default async function DashboardPage({
 
   const supabase = createAdminClient();
 
-  const [{ data: stores }, { data: categories }, { data: colorRows }, { data: sizeRows }] =
-    await Promise.all([
-      supabase.from("stores").select("id, name").order("name"),
-      supabase.from("product_categories").select("id, name").order("name"),
-      supabase.from("products").select("color").not("color", "is", null),
-      supabase.from("products").select("size").not("size", "is", null),
-    ]);
+  const returnTo = new URLSearchParams();
+  if (params.from) returnTo.set("from", params.from);
+  if (params.to) returnTo.set("to", params.to);
+  for (const v of toArray(params.store)) returnTo.append("store", v);
+  for (const v of toArray(params.color)) returnTo.append("color", v);
+  for (const v of toArray(params.size)) returnTo.append("size", v);
+  for (const v of toArray(params.category)) returnTo.append("category", v);
+  const returnToUrl = `/dashboard${returnTo.toString() ? `?${returnTo}` : ""}`;
+
+  const [
+    { data: stores },
+    { data: categories },
+    { data: colorRows },
+    { data: sizeRows },
+    { data: lastSync },
+  ] = await Promise.all([
+    supabase.from("stores").select("id, name").order("name"),
+    supabase.from("product_categories").select("id, name").order("name"),
+    supabase.from("products").select("color").not("color", "is", null),
+    supabase.from("products").select("size").not("size", "is", null),
+    supabase
+      .from("sync_runs")
+      .select("status, started_at, finished_at, orders_synced, error_message")
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
   const availableColors = Array.from(
     new Set((colorRows ?? []).map((r) => r.color as string)),
@@ -124,6 +145,41 @@ export default async function DashboardPage({
         {!process.env.ODOO_URL &&
           "Odoo isn't connected yet, so there's no data to show - see README."}
       </p>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800">
+        <span className="text-zinc-500">Last sync:</span>
+        {lastSync ? (
+          <span>
+            {lastSync.status === "success" && (
+              <>
+                ✅ succeeded {new Date(lastSync.started_at).toLocaleString()} -{" "}
+                {lastSync.orders_synced} orders
+              </>
+            )}
+            {lastSync.status === "error" && (
+              <span className="text-red-600">
+                ❌ failed {new Date(lastSync.started_at).toLocaleString()}:{" "}
+                {lastSync.error_message}
+              </span>
+            )}
+            {lastSync.status === "running" && (
+              <>⏳ still running (started {new Date(lastSync.started_at).toLocaleString()})</>
+            )}
+          </span>
+        ) : (
+          <span>never run</span>
+        )}
+        <form action={syncNowAction} className="ml-auto flex items-center gap-2">
+          <input type="hidden" name="returnTo" value={returnToUrl} />
+          <input type="hidden" name="days" value="7" />
+          <button
+            type="submit"
+            className="rounded border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          >
+            Sync now (last 7 days)
+          </button>
+        </form>
+      </div>
 
       <form
         method="get"
