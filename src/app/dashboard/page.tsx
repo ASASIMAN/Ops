@@ -9,6 +9,14 @@ export const maxDuration = 60;
 
 const ROW_LIMIT = 1000;
 
+// Store currency as IDR for now - revisit if a future Odoo instance/store
+// uses something else (see README "Currency").
+const currencyFormatter = new Intl.NumberFormat("id-ID", {
+  style: "currency",
+  currency: "IDR",
+  maximumFractionDigits: 0,
+});
+
 function toArray(value: string | string[] | undefined): string[] {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
@@ -281,7 +289,7 @@ export default async function DashboardPage({
         <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
           <div className="text-xs text-zinc-500">Revenue</div>
           <div className="text-xl font-semibold">
-            ${totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            {currencyFormatter.format(totalRevenue)}
           </div>
         </div>
         <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
@@ -336,7 +344,7 @@ export default async function DashboardPage({
                 <td className="px-3 py-2">{line.products?.size ?? "-"}</td>
                 <td className="px-3 py-2 text-right">{line.qty}</td>
                 <td className="px-3 py-2 text-right">
-                  ${Number(line.subtotal).toFixed(2)}
+                  {currencyFormatter.format(Number(line.subtotal))}
                 </td>
               </tr>
             ))}
