@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { StatusCard } from "@/components/status-card";
 
 export default function Home() {
@@ -21,6 +22,17 @@ export default function Home() {
         </div>
 
         <StatusCard />
+
+        <Link
+          href="/dashboard"
+          className="rounded-lg border border-zinc-200 p-4 hover:border-zinc-400 dark:border-zinc-800 dark:hover:border-zinc-600"
+        >
+          <div className="text-sm font-medium">Sales Dashboard →</div>
+          <div className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+            Odoo POS sales data, filterable by date, store, category, color,
+            and size.
+          </div>
+        </Link>
       </main>
     </div>
   );
