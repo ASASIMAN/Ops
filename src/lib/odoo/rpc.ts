@@ -5,8 +5,11 @@
 // parsing library, which keeps this dependency-free and easy to run in a
 // serverless function.
 //
-// Auth model: db + username + API key. There's no persistent session -
-// every call re-authenticates (cheap) and then calls object.execute_kw.
+// Auth model: db + username + API key, exchanged once for a uid via
+// common.authenticate, then every object.execute_kw call reuses that uid
+// (it doesn't expire - it's not a session token, just an id). The uid is
+// cached per warm function instance so a sync run doesn't pay for a round
+// trip to Odoo before every single data call.
 // Generate an API key in Odoo under the user's profile -> Account Security.
 
 interface OdooConfig {
@@ -65,7 +68,11 @@ async function jsonRpcCall<T>(
   return body.result as T;
 }
 
-async function authenticate(config: OdooConfig): Promise<number> {
+let cachedUid: number | null = null;
+
+async function getUid(config: OdooConfig): Promise<number> {
+  if (cachedUid !== null) return cachedUid;
+
   const uid = await jsonRpcCall<number>(config.url, "common", "authenticate", [
     config.db,
     config.username,
@@ -79,6 +86,7 @@ async function authenticate(config: OdooConfig): Promise<number> {
     );
   }
 
+  cachedUid = uid;
   return uid;
 }
 
@@ -90,7 +98,7 @@ export async function executeKw<T>(
   kwargs: Record<string, unknown> = {},
 ): Promise<T> {
   const config = getConfig();
-  const uid = await authenticate(config);
+  const uid = await getUid(config);
 
   return jsonRpcCall<T>(config.url, "object", "execute_kw", [
     config.db,

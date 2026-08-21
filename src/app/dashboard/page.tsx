@@ -2,6 +2,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { syncNowAction } from "./actions";
 
 export const dynamic = "force-dynamic";
+// Applies to this route's Server Actions too (e.g. the "Sync now" button) -
+// the Odoo sync makes several sequential API calls and needs real headroom
+// beyond the platform's short default, same as /api/sync/odoo.
+export const maxDuration = 60;
 
 const ROW_LIMIT = 1000;
 
