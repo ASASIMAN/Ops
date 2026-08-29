@@ -276,6 +276,27 @@ access (Creative Plan deck, KOL tier definitions, Unit Economics tab),
 Shopify, GA4, Search Console, and per-store Google Business Profile data
 all need real credentials/exports that haven't been provided yet.
 
+**Since then:**
+- `/marketing` (Overview) is now a genuine one-page summary: a
+  side-by-side "Needs attention" / "Looking good" panel driven by
+  `src/lib/insights.ts`, including a creative-pipeline alert (nothing in
+  production, or nothing scheduled on/after today) - the same rules also
+  render in full on `/marketing/insights`.
+- `supabase/migrations/0012_backfill_creative_from_organic_posts.sql`
+  backfills the Creative Planner with the real July '26 Instagram
+  posts/reels already in `organic_posts` (from the Metricool report),
+  marked `Published` with their real dates. Each card also carries its
+  real Metricool performance (impressions/interactions/etc.) via
+  `metricool_performance`, shown on the card - the "pull performance back
+  after publish" behavior from the brief. Not backfilled: content pillar
+  (not tagged in the source export) and asset/reference links (no real
+  URLs were captured) - left null rather than invented.
+- GBP/GA4/Search Console: walked through in chat (Google Cloud project,
+  API enablement, service accounts for GA4 + Search Console, OAuth for
+  GBP since it doesn't support service accounts) but no real credentials
+  have been provided yet, so no adapter code exists for these three -
+  same "don't build against fake access" rule as everything else here.
+
 ## How to update this each month
 
 1. **Odoo sales** sync automatically (daily cron) - no action needed
