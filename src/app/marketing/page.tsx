@@ -73,12 +73,88 @@ function Kpi({
   );
 }
 
+type Status = "good" | "attention" | "neutral";
+
+const statusStyles: Record<Status, { badge: string; card: string; label: string }> = {
+  good: {
+    badge: "bg-emerald-600 text-white dark:bg-emerald-500",
+    card: "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30",
+    label: "On track",
+  },
+  attention: {
+    badge: "bg-amber-500 text-white dark:bg-amber-600",
+    card: "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30",
+    label: "Needs attention",
+  },
+  neutral: {
+    badge: "bg-zinc-400 text-white dark:bg-zinc-600",
+    card: "border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50",
+    label: "No signal yet",
+  },
+};
+
+function StatusTile({
+  title,
+  status,
+  caption,
+  href,
+}: {
+  title: string;
+  status: Status;
+  caption: string;
+  href: string;
+}) {
+  const s = statusStyles[status];
+  return (
+    <Link
+      href={href}
+      className={`block rounded-xl border p-5 transition hover:opacity-90 ${s.card}`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{title}</span>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${s.badge}`}>
+          {s.label}
+        </span>
+      </div>
+      <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400">{caption}</p>
+    </Link>
+  );
+}
+
+function Hero({
+  label,
+  value,
+  deltaText,
+  deltaStatus,
+}: {
+  label: string;
+  value: string;
+  deltaText?: string;
+  deltaStatus?: Status;
+}) {
+  const deltaColor = deltaStatus
+    ? {
+        good: "text-emerald-600 dark:text-emerald-500",
+        attention: "text-amber-600 dark:text-amber-500",
+        neutral: "text-zinc-500",
+      }[deltaStatus]
+    : "text-zinc-500";
+  return (
+    <div className="rounded-xl border border-zinc-200 p-6 dark:border-zinc-800">
+      <div className="text-sm text-zinc-500">{label}</div>
+      <div className="mt-1 text-4xl font-semibold tracking-tight">{value}</div>
+      {deltaText && <div className={`mt-2 text-sm font-medium ${deltaColor}`}>{deltaText}</div>}
+    </div>
+  );
+}
+
 export default async function MarketingOverviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ month?: string }>;
+  searchParams: Promise<{ month?: string; view?: string }>;
 }) {
-  const { month: monthParam } = await searchParams;
+  const { month: monthParam, view } = await searchParams;
+  const isSimple = view === "simple";
   const supabase = createAdminClient();
 
   const [{ data: factRows }, { active: attentionItems, good: goodItems }] = await Promise.all([
@@ -113,10 +189,109 @@ export default async function MarketingOverviewPage({
       ? selected.metrics.online_sales_idr / selected.metrics.meta_ad_spend_idr
       : undefined;
 
+  const tileAreas = [
+    { key: "financials", title: "Budget & Spend", hrefPrefix: "/marketing/financials" },
+    { key: "paid_media", title: "Paid Media", hrefPrefix: "/marketing/paid-media" },
+    { key: "content", title: "Content Pipeline", hrefPrefix: "/marketing/creative" },
+    { key: "kols", title: "KOLs", hrefPrefix: "/marketing/kols" },
+  ];
+  const tiles = tileAreas.map((area) => {
+    const bad = attentionItems.find((i) => i.href.startsWith(area.hrefPrefix));
+    const goodItem = goodItems.find((i) => i.href.startsWith(area.hrefPrefix));
+    const status: Status = bad ? "attention" : goodItem ? "good" : "neutral";
+    const caption = bad?.text ?? goodItem?.text ?? "Nothing computable here yet.";
+    return { ...area, status, caption, href: bad?.href ?? goodItem?.href ?? area.hrefPrefix };
+  });
+
+  const salesMom = deltaLabel(selected?.metrics.online_sales_idr, prior?.metrics.online_sales_idr);
+  const salesMomNum =
+    selected?.metrics.online_sales_idr && prior?.metrics.online_sales_idr
+      ? selected.metrics.online_sales_idr - prior.metrics.online_sales_idr
+      : undefined;
+  const salesStatus: Status =
+    salesMomNum === undefined ? "neutral" : salesMomNum >= 0 ? "good" : "attention";
+
+  const budgetPercent = selected?.metrics.total_budget_idr
+    ? Math.round((selected.metrics.total_spend_idr / selected.metrics.total_budget_idr) * 100)
+    : undefined;
+  const budgetStatus: Status =
+    budgetPercent === undefined
+      ? "neutral"
+      : budgetPercent > 110
+        ? "attention"
+        : budgetPercent < 70
+          ? "neutral"
+          : "good";
+
+  if (isSimple) {
+    return (
+      <div className="mx-auto max-w-5xl px-6 py-10">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold tracking-tight">Marketing — At a glance</h1>
+          <Link
+            href={monthParam ? `/marketing?month=${monthParam}` : "/marketing"}
+            className="text-xs text-zinc-500 hover:underline dark:text-zinc-400"
+          >
+            Detailed view →
+          </Link>
+        </div>
+        {selected && (
+          <p className="mt-1 text-sm text-zinc-500">
+            {MONTH_LABEL.format(new Date(selected.date + "T00:00:00Z"))}
+          </p>
+        )}
+
+        {!selected ? (
+          <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">No data yet.</p>
+        ) : (
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <Hero
+              label="Online sales"
+              value={fmtIdr(selected.metrics.online_sales_idr)}
+              deltaText={salesMom ? `${salesMom} vs last month` : undefined}
+              deltaStatus={salesStatus}
+            />
+            <Hero
+              label="Total spend"
+              value={fmtIdr(selected.metrics.total_spend_idr)}
+              deltaText={
+                budgetPercent !== undefined ? `${budgetPercent}% of budget used` : undefined
+              }
+              deltaStatus={budgetStatus}
+            />
+            <Hero
+              label="Meta ROAS*"
+              value={metaRoas ? `${metaRoas.toFixed(2)}x` : "-"}
+              deltaText="*approx"
+            />
+          </div>
+        )}
+
+        <div className="mt-8 grid gap-4 sm:grid-cols-2">
+          {tiles.map((t) => (
+            <StatusTile
+              key={t.key}
+              title={t.title}
+              status={t.status}
+              caption={t.caption}
+              href={t.href}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Marketing</h1>
+        <Link
+          href={monthParam ? `/marketing?view=simple&month=${monthParam}` : "/marketing?view=simple"}
+          className="text-xs text-zinc-500 hover:underline dark:text-zinc-400"
+        >
+          Simple view →
+        </Link>
       </div>
 
       <nav className="mt-4 flex flex-wrap gap-2">
