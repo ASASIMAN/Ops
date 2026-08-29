@@ -17,6 +17,16 @@ const STATUSES = [
 
 const FORMATS = ["Video", "Single Image", "Carousel"] as const;
 
+interface MetricoolPerformance {
+  impressions?: number;
+  interactions?: number;
+  reach?: number;
+  likes?: number;
+  saved?: number;
+  comments?: number;
+  shares?: number;
+}
+
 interface Post {
   id: number;
   post_date: string | null;
@@ -25,6 +35,7 @@ interface Post {
   pillar: string | null;
   remarks: string | null;
   production_status: string;
+  metricool_performance: MetricoolPerformance | null;
 }
 
 export default async function CreativePlannerPage() {
@@ -34,7 +45,9 @@ export default async function CreativePlannerPage() {
     await Promise.all([
       admin
         .from("content_calendar")
-        .select("id, post_date, format, carousel_slide_count, pillar, remarks, production_status")
+        .select(
+          "id, post_date, format, carousel_slide_count, pillar, remarks, production_status, metricool_performance",
+        )
         .order("post_date", { ascending: true, nullsFirst: false }),
       admin.from("app_settings").select("value").eq("key", "content_pillars").maybeSingle(),
       admin
@@ -204,6 +217,14 @@ export default async function CreativePlannerPage() {
                   {p.remarks && (
                     <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                       {p.remarks}
+                    </p>
+                  )}
+                  {p.metricool_performance && (
+                    <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-500">
+                      {p.metricool_performance.impressions !== undefined &&
+                        `${p.metricool_performance.impressions.toLocaleString()} impr.`}
+                      {p.metricool_performance.interactions !== undefined &&
+                        ` · ${p.metricool_performance.interactions.toLocaleString()} interactions`}
                     </p>
                   )}
                   <form action={updatePostStatusAction} className="mt-2 flex gap-1">
