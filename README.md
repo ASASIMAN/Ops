@@ -201,12 +201,12 @@ login, `/hub` → `/operations` (existing sales dashboard) or `/marketing`
 RLS rather than via "never leaves a laptop" - cloud-hosted isn't the same
 as public.
 
-**Blocked on:** Google Drive access needs re-authorizing (the connection
-token expired) before I can read the actual Financials and KOL Google
-Sheets. The foundation schema and seed data below are built from the
-brief's own detailed table descriptions, not fabricated - but full
-historical P&L/unit-economics numbers (Dec '24 to date) aren't seeded yet
-since that needs the live sheet, not the brief's summary of it.
+**Blocked on:** Google Drive access still needs re-authorizing before I
+can read the live Financials/KOL Google Sheets directly (tier
+definitions, prospect lists, the full multi-tab KOL sheet). That said,
+real CSV exports for both were provided directly and are now seeded (see
+`0004`/`0005` below) - so historical P&L and the KOL booking log are real
+data now, not placeholders.
 
 **What's built:**
 - `supabase/migrations/0002_hub_and_marketing_foundation.sql` —
@@ -238,14 +238,37 @@ since that needs the live sheet, not the brief's summary of it.
   shows synced line count + last sync status; Marketing shows "Coming
   soon" since nothing's built there yet).
 - `/marketing` — placeholder page, reserved route.
+- `supabase/migrations/0004_seed_financials_history.sql` — the real
+  monthly P&L, Dec '24 through Jul '26, into `facts_daily`. Missing
+  months/metrics in the source ("—" or blank) are skipped, not stored as
+  0. The source's "WA Messages" column mixed `IG143`/`WA 56` style
+  values, so it's split into `messages_ig_count` / `messages_wa_count`
+  rather than merged - the channel prefix looked meaningful, not a typo.
+- `supabase/migrations/0005_kols.sql` — a `kols` table (booking-log only,
+  ahead of the full KOL CRM in build order step 7) seeded with the real
+  booking log. `opportunity_cost_raw` is kept verbatim ("500k Voucher",
+  "1.5jt") rather than parsed into a number - converting Indonesian
+  shorthand and deciding how in-kind product value compares to cash spend
+  is a real metric definition, flagged rather than guessed. Every row's
+  `scheduled_month` assumes 2026 (the source file had no year column;
+  inferred from the filename) - flag any row that's actually a different
+  year.
 
-**Known open item:** the four real stores in Supabase get their
-address/slug attached by matching on `name ilike '%canggu%'` etc. against
-whatever Odoo actually named those `pos.config` records - I don't know
-the exact names from here. Check `select id, name, slug from stores;`
-after running the seed migration; if a store didn't match, update it
-manually.
+**Known open items:**
+- The four real stores in Supabase get their address/slug attached by
+  matching on `name ilike '%canggu%'` etc. against whatever Odoo actually
+  named those `pos.config` records - I don't know the exact names from
+  here. Check `select id, name, slug from stores;` after running the seed
+  migration; if a store didn't match, update it manually.
+- Whether to parse `opportunity_cost_raw` into a numeric
+  `opportunity_cost_idr` (and how to treat vouchers/in-kind product vs.
+  cash) - needed before KOL cost can roll up into Financials automatically.
+- A handful of KOL rows look like month-level notes or open slots rather
+  than individual bookings (e.g. a row named "Feb" with no handle) -
+  imported as-is rather than dropped; worth a pass once you're looking at
+  the data.
 
 **Next steps (build order):** Meta Ads adapter + Paid Media module next,
-then Financials (once Drive access is back and the real sheet can be
-read), then the Overview dashboard, then Campaign Tracker + To-Dos.
+then the Overview dashboard (real financials data is already seeded),
+then Campaign Tracker + To-Dos. Will revisit the KOL tier
+definitions/prospect lists once Drive access is back.
