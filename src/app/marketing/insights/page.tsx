@@ -4,7 +4,7 @@ import { getInsights } from "@/lib/insights";
 export const dynamic = "force-dynamic";
 
 export default async function InsightsPage() {
-  const { active, blocked } = await getInsights();
+  const { active, good, blocked } = await getInsights();
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
@@ -31,6 +31,25 @@ export default async function InsightsPage() {
         ))}
         {!active.length && (
           <li className="text-sm text-zinc-500">Nothing needs attention right now.</li>
+        )}
+      </ul>
+
+      <h2 className="mt-8 text-sm font-medium text-zinc-500">
+        Looking good ({good.length})
+      </h2>
+      <ul className="mt-2 space-y-2">
+        {good.map((insight) => (
+          <li
+            key={insight.text}
+            className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm dark:border-emerald-800 dark:bg-emerald-950/30"
+          >
+            <Link href={insight.href} className="text-emerald-900 hover:underline dark:text-emerald-400">
+              {insight.text}
+            </Link>
+          </li>
+        ))}
+        {!good.length && (
+          <li className="text-sm text-zinc-500">Nothing to highlight yet.</li>
         )}
       </ul>
 

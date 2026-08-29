@@ -81,7 +81,7 @@ export default async function MarketingOverviewPage({
   const { month: monthParam } = await searchParams;
   const supabase = createAdminClient();
 
-  const [{ data: factRows }, { active: attentionItems }] = await Promise.all([
+  const [{ data: factRows }, { active: attentionItems, good: goodItems }] = await Promise.all([
     supabase
       .from("facts_daily")
       .select("date, metric, value")
@@ -222,28 +222,55 @@ export default async function MarketingOverviewPage({
         </>
       )}
 
-      {attentionItems.length > 0 && (
-        <div className="mt-8 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-amber-900 dark:text-amber-400">
-              Needs attention
-            </h2>
-            <Link
-              href="/marketing/insights"
-              className="text-xs text-amber-900 hover:underline dark:text-amber-400"
-            >
-              Full insights →
-            </Link>
+      {(attentionItems.length > 0 || goodItems.length > 0) && (
+        <div className="mt-8 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-amber-900 dark:text-amber-400">
+                Needs attention {attentionItems.length > 0 && `(${attentionItems.length})`}
+              </h2>
+              <Link
+                href="/marketing/insights"
+                className="text-xs text-amber-900 hover:underline dark:text-amber-400"
+              >
+                Full insights →
+              </Link>
+            </div>
+            {attentionItems.length > 0 ? (
+              <ul className="mt-2 space-y-1 text-sm text-amber-800 dark:text-amber-500">
+                {attentionItems.map((item) => (
+                  <li key={item.text}>
+                    <Link href={item.href} className="hover:underline">
+                      {item.text}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-amber-800 dark:text-amber-500">Nothing flagged.</p>
+            )}
           </div>
-          <ul className="mt-2 space-y-1 text-sm text-amber-800 dark:text-amber-500">
-            {attentionItems.map((item) => (
-              <li key={item.text}>
-                <Link href={item.href} className="hover:underline">
-                  {item.text}
-                </Link>
-              </li>
-            ))}
-          </ul>
+
+          <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950/30">
+            <h2 className="text-sm font-medium text-emerald-900 dark:text-emerald-400">
+              Looking good {goodItems.length > 0 && `(${goodItems.length})`}
+            </h2>
+            {goodItems.length > 0 ? (
+              <ul className="mt-2 space-y-1 text-sm text-emerald-800 dark:text-emerald-500">
+                {goodItems.map((item) => (
+                  <li key={item.text}>
+                    <Link href={item.href} className="hover:underline">
+                      {item.text}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-emerald-800 dark:text-emerald-500">
+                Nothing to highlight yet.
+              </p>
+            )}
+          </div>
         </div>
       )}
 

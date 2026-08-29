@@ -7,6 +7,7 @@ export interface Insight {
 
 export interface InsightsResult {
   active: Insight[];
+  good: Insight[];
   blocked: { rule: string; reason: string }[];
 }
 
@@ -32,6 +33,7 @@ const MONTH_LABEL = new Intl.DateTimeFormat("en-US", {
 export async function getInsights(): Promise<InsightsResult> {
   const admin = createAdminClient();
   const active: Insight[] = [];
+  const good: Insight[] = [];
   const blocked: { rule: string; reason: string }[] = [];
 
   const [
@@ -53,7 +55,7 @@ export async function getInsights(): Promise<InsightsResult> {
         "ad_id, amount_spent_idr, purchases, cost_per_purchase_idr, quality_ranking, engagement_ranking, conversion_ranking, reporting_start, reporting_end, ads ( ad_name )",
       )
       .order("reporting_start", { ascending: false }),
-    admin.from("content_calendar").select("id, production_status, pillar"),
+    admin.from("content_calendar").select("id, post_date, production_status, pillar"),
     admin.from("kols").select("id, name, social_handle, status, opportunity_cost_idr"),
   ]);
 
@@ -89,6 +91,11 @@ export async function getInsights(): Promise<InsightsResult> {
       } else if (percent < 70) {
         active.push({
           text: `${MONTH_LABEL.format(monthDate)} is pacing at only ${percent}% of budget - room to spend more before month end.`,
+          href: "/marketing/financials",
+        });
+      } else {
+        good.push({
+          text: `${MONTH_LABEL.format(monthDate)} is pacing at ${percent}% of budget - on track.`,
           href: "/marketing/financials",
         });
       }
@@ -140,6 +147,16 @@ export async function getInsights(): Promise<InsightsResult> {
           });
         }
       }
+      const best = withPurchases.reduce((a, b) =>
+        Number(a.cost_per_purchase_idr) < Number(b.cost_per_purchase_idr) ? a : b,
+      );
+      const bestCpa = Number(best.cost_per_purchase_idr);
+      if (bestCpa < median * 0.5) {
+        good.push({
+          text: `"${best.ads?.ad_name}" is this period's best performer at ${currencyFormatter.format(bestCpa)} per purchase, well below the median (${currencyFormatter.format(median)}).`,
+          href: "/marketing/paid-media",
+        });
+      }
     } else {
       blocked.push({
         rule: "CPA outliers (trailing 3-month median)",
@@ -186,6 +203,45 @@ export async function getInsights(): Promise<InsightsResult> {
     });
   }
 
+  // New creative alert: is anything actually queued up to publish next, or
+  // has the pipeline run dry? "Published" posts don't count - this checks
+  // for work in progress or scheduled ahead of it.
+  const pipelineStatuses = [
+    "Concept",
+    "Shoot scheduled",
+    "Shot",
+    "In edit",
+    "Awaiting delivery",
+    "Approved",
+    "Scheduled",
+  ];
+  const inPipeline = (contentRows ?? []).filter((c) =>
+    pipelineStatuses.includes(c.production_status),
+  );
+  if (contentTotal > 0) {
+    if (inPipeline.length === 0) {
+      active.push({
+        text: "Nothing is currently in the creative pipeline (Concept through Scheduled) - every planner entry is already Published. New creative is needed.",
+        href: "/marketing/creative",
+      });
+    } else {
+      const upcoming = inPipeline.filter(
+        (c) => c.post_date && c.post_date >= new Date().toISOString().slice(0, 10),
+      );
+      if (upcoming.length === 0) {
+        active.push({
+          text: `${inPipeline.length} post${inPipeline.length === 1 ? "" : "s"} in the pipeline, but none has a scheduled date on or after today.`,
+          href: "/marketing/creative",
+        });
+      } else {
+        good.push({
+          text: `${upcoming.length} post${upcoming.length === 1 ? "" : "s"} in the pipeline with a scheduled date coming up.`,
+          href: "/marketing/creative",
+        });
+      }
+    }
+  }
+
   // 7. KOL missed bookings (the "confirmed-but-never-delivered" flag -
   // "Missed" is the closest status to that in the real data).
   const missed = (kolRows ?? []).filter((k) => k.status === "Missed");
@@ -195,6 +251,13 @@ export async function getInsights(): Promise<InsightsResult> {
         .slice(0, 3)
         .map((k) => k.name || k.social_handle || "unnamed")
         .join(", ")}${missed.length > 3 ? ", ..." : ""}.`,
+      href: "/marketing/kols",
+    });
+  }
+  const done = (kolRows ?? []).filter((k) => k.status === "Done");
+  if (done.length > 0) {
+    good.push({
+      text: `${done.length} KOL collaboration${done.length === 1 ? "" : "s"} completed (Done).`,
       href: "/marketing/kols",
     });
   }
@@ -213,5 +276,5 @@ export async function getInsights(): Promise<InsightsResult> {
     reason: "Store revenue is available via the Odoo sync, but Maps impressions per store isn't - only one business-wide GBP figure exists so far.",
   });
 
-  return { active, blocked };
+  return { active, good, blocked };
 }
