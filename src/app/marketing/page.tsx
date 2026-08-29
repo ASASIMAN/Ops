@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getInsights } from "@/lib/insights";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,7 @@ const modules = [
   { href: "/marketing/creative", label: "Creative Planner", status: "live" as const },
   { href: "/marketing/kols", label: "KOL CRM", status: "live" as const },
   { href: "/marketing/organic-social", label: "Organic Social", status: "live" as const },
+  { href: "/marketing/insights", label: "Insights", status: "live" as const },
   { href: null, label: "Web & Ecom", status: "soon" as const },
   { href: null, label: "Retail & Local", status: "soon" as const },
 ];
@@ -78,19 +80,14 @@ export default async function MarketingOverviewPage({
   const { month: monthParam } = await searchParams;
   const supabase = createAdminClient();
 
-  const [{ data: factRows }, { data: assumptionRows }, { data: adSnapshots }] =
-    await Promise.all([
-      supabase
-        .from("facts_daily")
-        .select("date, metric, value")
-        .eq("source", "financials_sheet")
-        .order("date", { ascending: true }),
-      supabase.from("assumptions").select("key, value"),
-      supabase
-        .from("ad_performance_snapshots")
-        .select("cost_per_purchase_idr, purchases, reporting_start, reporting_end, ads ( ad_name )")
-        .order("reporting_start", { ascending: false }),
-    ]);
+  const [{ data: factRows }, { active: attentionItems }] = await Promise.all([
+    supabase
+      .from("facts_daily")
+      .select("date, metric, value")
+      .eq("source", "financials_sheet")
+      .order("date", { ascending: true }),
+    getInsights(),
+  ]);
 
   const byMonth = new Map<string, MonthMetrics>();
   for (const row of factRows ?? []) {
@@ -110,72 +107,10 @@ export default async function MarketingOverviewPage({
     : undefined;
   const yoy = months.find((m) => m.date === yoyDate);
 
-  const assumptions = new Map((assumptionRows ?? []).map((a) => [a.key, a.value]));
-  const monthlyBudget = assumptions.get("monthly_marketing_budget_idr");
-
   const metaRoas =
     selected?.metrics.meta_ad_spend_idr && selected?.metrics.online_sales_idr
       ? selected.metrics.online_sales_idr / selected.metrics.meta_ad_spend_idr
       : undefined;
-
-  // Needs attention: budget pacing on the latest real data (not the
-  // browsed month - this is an operational alert, always current).
-  const latestMonth = months[months.length - 1];
-  const attentionItems: string[] = [];
-  if (latestMonth) {
-    const spend = latestMonth.metrics.total_spend_idr;
-    const budget = latestMonth.metrics.total_budget_idr ?? monthlyBudget;
-    if (spend && budget) {
-      const percent = Math.round((spend / budget) * 100);
-      if (percent > 110) {
-        attentionItems.push(
-          `${MONTH_LABEL.format(new Date(latestMonth.date + "T00:00:00Z"))} spend is at ${percent}% of budget - over pace. See Financials.`,
-        );
-      } else if (percent < 70) {
-        attentionItems.push(
-          `${MONTH_LABEL.format(new Date(latestMonth.date + "T00:00:00Z"))} spend is at only ${percent}% of budget - room to spend more. See Financials.`,
-        );
-      }
-    }
-  }
-
-  // CPA outliers in the most recent ad reporting period.
-  const latestPeriod = adSnapshots?.[0]
-    ? { start: adSnapshots[0].reporting_start, end: adSnapshots[0].reporting_end }
-    : null;
-  if (latestPeriod) {
-    type SnapshotWithAd = {
-      cost_per_purchase_idr: number | null;
-      purchases: number | null;
-      reporting_start: string;
-      reporting_end: string;
-      ads: { ad_name: string } | null;
-    };
-    const periodSnapshots = (
-      (adSnapshots ?? []) as unknown as SnapshotWithAd[]
-    ).filter(
-      (s) =>
-        s.reporting_start === latestPeriod.start &&
-        s.reporting_end === latestPeriod.end &&
-        s.cost_per_purchase_idr &&
-        Number(s.purchases) > 0,
-    );
-    if (periodSnapshots.length >= 3) {
-      const cpas = periodSnapshots
-        .map((s) => Number(s.cost_per_purchase_idr))
-        .sort((a, b) => a - b);
-      const mid = Math.floor(cpas.length / 2);
-      const med = cpas.length % 2 === 0 ? (cpas[mid - 1] + cpas[mid]) / 2 : cpas[mid];
-      for (const s of periodSnapshots) {
-        const cpa = Number(s.cost_per_purchase_idr);
-        if (cpa > med * 2) {
-          attentionItems.push(
-            `"${s.ads?.ad_name}" costs ${currencyFormatter.format(cpa)} per purchase - more than 2x this period's median (${currencyFormatter.format(med)}). See Paid Media.`,
-          );
-        }
-      }
-    }
-  }
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
@@ -288,12 +223,24 @@ export default async function MarketingOverviewPage({
 
       {attentionItems.length > 0 && (
         <div className="mt-8 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
-          <h2 className="text-sm font-medium text-amber-900 dark:text-amber-400">
-            Needs attention
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium text-amber-900 dark:text-amber-400">
+              Needs attention
+            </h2>
+            <Link
+              href="/marketing/insights"
+              className="text-xs text-amber-900 hover:underline dark:text-amber-400"
+            >
+              Full insights →
+            </Link>
+          </div>
           <ul className="mt-2 space-y-1 text-sm text-amber-800 dark:text-amber-500">
             {attentionItems.map((item) => (
-              <li key={item}>{item}</li>
+              <li key={item.text}>
+                <Link href={item.href} className="hover:underline">
+                  {item.text}
+                </Link>
+              </li>
             ))}
           </ul>
         </div>
