@@ -22,10 +22,10 @@ const modules = [
   { href: "/marketing/campaigns", label: "Campaign Tracker", status: "live" as const },
   { href: "/marketing/tasks", label: "Tasks", status: "live" as const },
   { href: "/marketing/creative", label: "Creative Planner", status: "live" as const },
+  { href: "/marketing/kols", label: "KOL CRM", status: "live" as const },
   { href: null, label: "Organic Social", status: "soon" as const },
   { href: null, label: "Web & Ecom", status: "soon" as const },
   { href: null, label: "Retail & Local", status: "soon" as const },
-  { href: null, label: "KOL CRM", status: "soon" as const },
 ];
 
 interface MonthMetrics {

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { updateAssumptionAction } from "./actions";
 
@@ -31,19 +32,36 @@ function fmtNum(v: number | undefined) {
 export default async function FinancialsPage() {
   const supabase = createAdminClient();
 
-  const [{ data: factRows }, { data: assumptionRows }] = await Promise.all([
-    supabase
-      .from("facts_daily")
-      .select("date, metric, value")
-      .eq("source", "financials_sheet")
-      .order("date", { ascending: true }),
-    supabase.from("assumptions").select("key, value, label").order("key"),
-  ]);
+  const [{ data: factRows }, { data: assumptionRows }, { data: kolRows }] =
+    await Promise.all([
+      supabase
+        .from("facts_daily")
+        .select("date, metric, value")
+        .eq("source", "financials_sheet")
+        .order("date", { ascending: true }),
+      supabase.from("assumptions").select("key, value, label").order("key"),
+      supabase
+        .from("kols")
+        .select("scheduled_month, opportunity_cost_idr")
+        .not("scheduled_month", "is", null),
+    ]);
 
   const byMonth = new Map<string, MonthMetrics>();
   for (const row of factRows ?? []) {
     if (!byMonth.has(row.date)) byMonth.set(row.date, { date: row.date, metrics: {} });
     byMonth.get(row.date)!.metrics[row.metric] = Number(row.value);
+  }
+
+  // Auto-rolled from the KOL CRM (build order step 7), per the brief -
+  // only counts entries with a numeric opportunity_cost_idr, since most
+  // existing KOL records only have a free-text cost description.
+  for (const row of kolRows ?? []) {
+    if (row.opportunity_cost_idr === null) continue;
+    const monthDate = `${row.scheduled_month!.slice(0, 7)}-01`;
+    if (!byMonth.has(monthDate)) byMonth.set(monthDate, { date: monthDate, metrics: {} });
+    const m = byMonth.get(monthDate)!;
+    m.metrics.kol_opportunity_cost_rolled_idr =
+      (m.metrics.kol_opportunity_cost_rolled_idr ?? 0) + Number(row.opportunity_cost_idr);
   }
   const months = Array.from(byMonth.values()).sort((a, b) =>
     b.date.localeCompare(a.date),
@@ -160,6 +178,9 @@ export default async function FinancialsPage() {
               <th className="px-3 py-2 text-right">Google spend</th>
               <th className="px-3 py-2 text-right">TikTok spend</th>
               <th className="px-3 py-2 text-right">Marketing cost</th>
+              <th className="px-3 py-2 text-right" title="From the KOL CRM - only counts KOL records with a numeric opportunity cost entered.">
+                KOL cost*
+              </th>
               <th className="px-3 py-2 text-right">Total spend</th>
               <th className="px-3 py-2 text-right">Budget</th>
               <th className="px-3 py-2 text-right" title="Approximation: online sales ÷ Meta spend. Assumes all online sales are Meta-driven, which overstates ROAS if other channels contribute.">
@@ -199,6 +220,9 @@ export default async function FinancialsPage() {
                   <td className="px-3 py-2 text-right">
                     {fmtIdr(m.metrics.marketing_cost_idr)}
                   </td>
+                  <td className="px-3 py-2 text-right">
+                    {fmtIdr(m.metrics.kol_opportunity_cost_rolled_idr)}
+                  </td>
                   <td className="px-3 py-2 text-right font-medium">
                     {fmtIdr(m.metrics.total_spend_idr)}
                   </td>
@@ -220,6 +244,16 @@ export default async function FinancialsPage() {
         meaningful Google/TikTok/organic contribution. Treat it as a rough
         signal, not a precise per-channel figure, until sales are properly
         attributed by source.
+      </p>
+      <p className="mt-1 text-xs text-zinc-500">
+        *KOL cost is rolled up automatically from{" "}
+        <Link href="/marketing/kols" className="underline">
+          the KOL CRM
+        </Link>
+        , and only totals records with a numeric opportunity cost entered
+        - most existing records only have a free-text description
+        (&quot;500k Voucher&quot; etc.), so this understates true KOL
+        spend until those are given numeric values.
       </p>
 
       {ltvMultiplier && (
