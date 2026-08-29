@@ -86,7 +86,11 @@ export default async function DashboardPage({
     { data: sizeRows },
     { data: lastSync },
   ] = await Promise.all([
-    supabase.from("stores").select("id, name").order("name"),
+    supabase
+      .from("stores")
+      .select("id, name")
+      .eq("active", true)
+      .order("name"),
     supabase.from("product_categories").select("id, name").order("name"),
     supabase.from("products").select("color").not("color", "is", null),
     supabase.from("products").select("size").not("size", "is", null),
