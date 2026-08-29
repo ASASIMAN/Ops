@@ -231,26 +231,38 @@ export default async function PaidMediaPage({
       {leaderboard.length > 0 && (
         <div className="mt-8">
           <h2 className="text-lg font-medium">Top performing ads</h2>
+          {cpaValues.length < 3 && (
+            <p className="mt-1 text-xs text-zinc-500">
+              Only {cpaValues.length} ad{cpaValues.length === 1 ? "" : "s"} had
+              a purchase this period - take the median comparison with a
+              grain of salt until there&apos;s more data.
+            </p>
+          )}
           <ol className="mt-2 space-y-2">
-            {leaderboard.map((s, i) => (
-              <li
-                key={s.ad_id}
-                className="rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800"
-              >
-                <span className="font-medium">
-                  {i + 1}. {s.ads?.ad_name}
-                </span>
-                <p className="mt-1 text-zinc-600 dark:text-zinc-400">
-                  {currencyFormatter.format(Number(s.cost_per_purchase_idr))} per
-                  purchase
-                  {cpaMedian !== null &&
-                    ` - ${Math.round(
-                      (1 - Number(s.cost_per_purchase_idr) / cpaMedian) * 100,
-                    )}% below this period's median (${currencyFormatter.format(cpaMedian)})`}
-                  , {s.purchases} purchase{Number(s.purchases) === 1 ? "" : "s"}.
-                </p>
-              </li>
-            ))}
+            {leaderboard.map((s, i) => {
+              const cpa = Number(s.cost_per_purchase_idr);
+              const diffPercent =
+                cpaMedian !== null ? Math.round((1 - cpa / cpaMedian) * 100) : null;
+              return (
+                <li
+                  key={s.ad_id}
+                  className="rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800"
+                >
+                  <span className="font-medium">
+                    {i + 1}. {s.ads?.ad_name}
+                  </span>
+                  <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+                    {currencyFormatter.format(cpa)} per purchase
+                    {diffPercent !== null &&
+                      cpaMedian !== null &&
+                      (diffPercent === 0
+                        ? ` - in line with this period's median (${currencyFormatter.format(cpaMedian)})`
+                        : ` - ${Math.abs(diffPercent)}% ${diffPercent > 0 ? "below" : "above"} this period's median (${currencyFormatter.format(cpaMedian)})`)}
+                    , {s.purchases} purchase{Number(s.purchases) === 1 ? "" : "s"}.
+                  </p>
+                </li>
+              );
+            })}
           </ol>
         </div>
       )}
