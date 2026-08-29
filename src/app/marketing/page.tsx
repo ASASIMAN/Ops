@@ -19,13 +19,13 @@ const modules = [
   { href: "/marketing/paid-media", label: "Paid Media", status: "live" as const },
   { href: "/marketing/financials", label: "Financials", status: "live" as const },
   { href: "/marketing/import", label: "Data Import", status: "live" as const },
+  { href: "/marketing/campaigns", label: "Campaign Tracker", status: "live" as const },
+  { href: "/marketing/tasks", label: "Tasks", status: "live" as const },
   { href: null, label: "Organic Social", status: "soon" as const },
   { href: null, label: "Web & Ecom", status: "soon" as const },
   { href: null, label: "Retail & Local", status: "soon" as const },
-  { href: null, label: "Campaign Tracker", status: "soon" as const },
   { href: null, label: "Creative Planner", status: "soon" as const },
   { href: null, label: "KOL CRM", status: "soon" as const },
-  { href: null, label: "To-Dos", status: "soon" as const },
 ];
 
 interface MonthMetrics {
