@@ -3,11 +3,11 @@ import Link from "next/link";
 const modules = [
   { href: "/marketing/paid-media", label: "Paid Media", status: "live" as const },
   { href: "/marketing/import", label: "Data Import", status: "live" as const },
+  { href: "/marketing/financials", label: "Financials", status: "live" as const },
   { href: null, label: "Overview", status: "soon" as const },
   { href: null, label: "Organic Social", status: "soon" as const },
   { href: null, label: "Web & Ecom", status: "soon" as const },
   { href: null, label: "Retail & Local", status: "soon" as const },
-  { href: null, label: "Financials", status: "soon" as const },
   { href: null, label: "Campaign Tracker", status: "soon" as const },
   { href: null, label: "Creative Planner", status: "soon" as const },
   { href: null, label: "KOL CRM", status: "soon" as const },
