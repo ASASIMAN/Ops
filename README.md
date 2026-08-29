@@ -268,7 +268,30 @@ data now, not placeholders.
   imported as-is rather than dropped; worth a pass once you're looking at
   the data.
 
-**Next steps (build order):** Meta Ads adapter + Paid Media module next,
-then the Overview dashboard (real financials data is already seeded),
-then Campaign Tracker + To-Dos. Will revisit the KOL tier
-definitions/prospect lists once Drive access is back.
+**Status:** all 10 build-order steps from the original brief are done -
+Overview, Paid Media, Financials, Campaign Tracker, Tasks, Creative
+Planner, KOL CRM, Organic Social, Insights, and Settings. Real gaps that
+remain are flagged in-app wherever they matter, not hidden: Google Drive
+access (Creative Plan deck, KOL tier definitions, Unit Economics tab),
+Shopify, GA4, Search Console, and per-store Google Business Profile data
+all need real credentials/exports that haven't been provided yet.
+
+## How to update this each month
+
+1. **Odoo sales** sync automatically (daily cron) - no action needed
+   unless `/operations` shows a failed sync, in which case click **Sync
+   now** there.
+2. **Meta Ads**: export the ads report from Ads Manager as a CSV, go to
+   **Marketing → Data Import**, upload it. Safe to re-upload the same or
+   an overlapping period - it updates rather than duplicates.
+3. **Financials**: once the monthly numbers are final, add them as a new
+   row - for now that means a SQL insert into `facts_daily` (ask me and
+   I'll generate it from whatever numbers you give me, same as the
+   historical seed). A proper manual-entry form is a reasonable next
+   addition once this monthly rhythm is established.
+4. **KOL bookings, campaigns, creative posts, tasks**: add/update these
+   directly in the app as things happen through the month - no batch
+   step needed, they're live the moment they're entered.
+5. **Assumptions and taxonomy** (LTV multiplier, budget figures, status
+   lists): edit directly on **Financials** (assumptions) or
+   **Marketing → Settings** (stores, taxonomy) - no code or SQL needed.

@@ -26,6 +26,7 @@ const modules = [
   { href: "/marketing/kols", label: "KOL CRM", status: "live" as const },
   { href: "/marketing/organic-social", label: "Organic Social", status: "live" as const },
   { href: "/marketing/insights", label: "Insights", status: "live" as const },
+  { href: "/marketing/settings", label: "Settings", status: "live" as const },
   { href: null, label: "Web & Ecom", status: "soon" as const },
   { href: null, label: "Retail & Local", status: "soon" as const },
 ];
