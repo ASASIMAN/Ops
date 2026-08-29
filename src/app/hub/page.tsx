@@ -34,6 +34,34 @@ async function getOperationsStats() {
   ];
 }
 
+async function getMarketingStats() {
+  const supabase = createAdminClient();
+  const [{ data: latestSpend }, { count: adCount }] = await Promise.all([
+    supabase
+      .from("facts_daily")
+      .select("value")
+      .eq("source", "financials_sheet")
+      .eq("metric", "total_spend_idr")
+      .order("date", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase.from("ads").select("*", { count: "exact", head: true }),
+  ]);
+
+  const currency = new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    maximumFractionDigits: 0,
+  });
+
+  return [
+    latestSpend
+      ? `${currency.format(Number(latestSpend.value))} spend, latest month`
+      : "No spend data yet",
+    `${adCount ?? 0} ads tracked`,
+  ];
+}
+
 export default async function HubPage() {
   const supabase = await createClient();
   const {
@@ -53,6 +81,9 @@ export default async function HubPage() {
   const stats: Record<string, string[]> = {};
   if (visibleModules.some((m) => m.id === "operations")) {
     stats.operations = await getOperationsStats();
+  }
+  if (visibleModules.some((m) => m.id === "marketing")) {
+    stats.marketing = await getMarketingStats();
   }
 
   return (

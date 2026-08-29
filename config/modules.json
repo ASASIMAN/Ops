@@ -10,9 +10,9 @@
   {
     "id": "marketing",
     "title": "Marketing",
-    "description": "Campaigns, creative, paid & organic performance, and financials.",
+    "description": "Overview, Paid Media, and Financials are live; Campaign Tracker, Creative Planner, KOL CRM, and more are being built out module by module.",
     "route": "/marketing",
     "roles": ["admin", "marketing", "viewer"],
-    "status": "coming_soon"
+    "status": "live"
   }
 ]
