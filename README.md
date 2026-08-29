@@ -1,14 +1,21 @@
-## Ops
+## ASASI Internal Ecosystem
 
-Internal operations app. Next.js (App Router) + TypeScript + Tailwind CSS + Supabase.
+Next.js (App Router) + TypeScript + Tailwind CSS + Supabase. One deployed
+app, gated by login, with a hub that routes into separate workspaces:
+**Operations** (live — the Odoo POS sales dashboard) and **Marketing**
+(in progress — the Marketing Command Centre).
 
 ### Local development
 
 ```bash
 npm install
-cp .env.example .env.local   # fill in the two Supabase values below
+cp .env.example .env.local   # fill in the values below
 npm run dev
 ```
+
+Auth requires reaching your real Supabase project even locally (no local
+auth emulator), so `SUPABASE_SERVICE_ROLE_KEY` and the Supabase URL/anon
+key need to be real values for local dev to fully work.
 
 ### Environment variables
 
@@ -18,13 +25,14 @@ deployed environments.
 | Variable | Where to find it |
 | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project → Settings → API → Project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase project → Settings → API → `anon` `public` key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase project → Settings → API → `service_role` key. **Server-only, never expose to the browser.** Used by the sales dashboard and the Odoo sync job, since sales data has no public read policy. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase project → Settings → API → `anon`/publishable key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase project → Settings → API → `service_role`/secret key. **Server-only, never expose to the browser.** Used wherever RLS needs bypassing (sales sync, admin account creation). |
 | `ODOO_URL` | Your Odoo instance URL, e.g. `https://yourcompany.odoo.com` |
 | `ODOO_DB` | Your Odoo database name |
 | `ODOO_USERNAME` | A user with read access to POS/product data — ideally a dedicated read-only user |
 | `ODOO_API_KEY` | Generate under that user's profile → Account Security → New API Key |
 | `CRON_SECRET` | Any random string. Authorizes calls to `/api/sync/odoo` — Vercel sends this automatically on its own scheduled cron requests once the var is set. |
+| `SETUP_SECRET` | Any random string. Gates the one-time `/setup` page that creates the first admin login. |
 
 ### Deploying (Vercel)
 
@@ -47,25 +55,46 @@ deployed environments.
    - `src/lib/supabase/server.ts` — server client (Server Components,
      Route Handlers)
 
-The homepage (`src/app/page.tsx`) shows a live Supabase connection status
-card so you can confirm the wiring works end to end once the env vars are
-set.
-
 ### Project structure
 
 ```
-src/app/            routes (App Router)
-src/app/dashboard/  Sales Dashboard (Odoo POS data)
-src/app/api/sync/   Odoo -> Supabase sync job
-src/components/     shared UI components
-src/lib/supabase/   Supabase client helpers (browser, server, admin/service-role)
-src/lib/odoo/       Odoo external API client
-supabase/migrations Hand-run SQL migrations (see below)
+src/app/                routes (App Router)
+src/app/login/          sign in
+src/app/setup/          one-time admin account creation
+src/app/change-password/forced password change on first login
+src/app/hub/             post-login landing - two tiles, config-driven
+src/app/operations/     Sales Dashboard (Odoo POS data) - the "Operations" tile
+src/app/marketing/      Marketing Command Centre - the "Marketing" tile (stub for now)
+src/app/api/sync/       Odoo -> Supabase sync job
+src/components/shell/   shared chrome (header, sign-out) used by every gated route
+src/lib/supabase/       Supabase client helpers (browser, server, admin/service-role)
+src/lib/odoo/           Odoo external API client
+src/middleware.ts       session refresh + auth gate + forced-password-change redirect
+config/modules.json     hub tile definitions (add a tile here, not by editing the hub)
+supabase/migrations/    hand-run SQL migrations (see below)
 ```
 
-This started as a blank starting point and now also hosts the Sales
-Dashboard described below — add further pages/tools as requests come in
-from the team.
+### First-time setup (auth)
+
+1. Run all three SQL migrations in order (Supabase dashboard → SQL Editor):
+   `0001_sales_schema.sql`, `0002_hub_and_marketing_foundation.sql`,
+   `0003_seed_marketing_foundation.sql`.
+2. Set `SETUP_SECRET` in Vercel, redeploy.
+3. Visit `/setup`, enter the setup key + your email + a password. This
+   creates the first (and only, via this page) admin account.
+4. Sign in at `/login`. You'll land on `/hub`.
+
+New team members: an admin creates their `auth.users` row + a `profiles`
+row (role + `must_change_password = true`) directly in Supabase for now —
+there's no in-app "invite a teammate" flow yet.
+
+### The hub
+
+`/hub` reads `config/modules.json` and renders one tile per module the
+signed-in user's role can see. Roles: `admin` (sees everything), `ops`,
+`marketing`, `viewer`. To add a third tile later (Retail Ops, Inventory,
+etc.), add an entry to `modules.json` — the hub itself doesn't need
+changes.
 
 ## Sales Dashboard (Odoo POS)
 
@@ -117,7 +146,7 @@ instance, since I don't have connection details):
   frequency, so for more-than-daily syncing you'd either need a paid plan
   or an external scheduler (e.g. a scheduled GitHub Action hitting the
   endpoint) — not set up yet, flag if you want tighter freshness sooner.
-- `/dashboard` — filters (date range, store multi-select, category,
+- `/operations` — filters (date range, store multi-select, category,
   color, size) as a plain HTML GET form (filter state lives in the URL,
   no client JS needed), a revenue/units/line-count summary, and a table
   of matching order lines. Capped at 1000 rows for now — no pagination
@@ -132,18 +161,18 @@ instance, since I don't have connection details):
   run in date-chunked batches to stay under the 60s function limit - not
   built yet, will design once we know your order volume)
 
-### Running the SQL migration
+### Running the SQL migrations
 
 Supabase migrations here are plain `.sql` files, run manually for now (no
-CLI/CI wiring yet): open the Supabase dashboard → SQL Editor → paste the
-contents of `supabase/migrations/0001_sales_schema.sql` → run.
+CLI/CI wiring yet): open the Supabase dashboard → SQL Editor → paste each
+file's contents in order → run.
 
 ### Triggering a sync manually
 
-Easiest: click **"Sync now"** on the `/dashboard` page itself - it runs the
-sync directly (a Server Action, not an HTTP call), so `CRON_SECRET` never
-has to leave the server, and the page shows the result (success + order
-count, or the specific error) right above the filters.
+Easiest: click **"Sync now"** on the `/operations` page itself - it runs
+the sync directly (a Server Action, not an HTTP call), so `CRON_SECRET`
+never has to leave the server, and the page shows the result (success +
+order count, or the specific error) right above the filters.
 
 Or, from the command line:
 
@@ -151,3 +180,72 @@ Or, from the command line:
 curl -X POST "https://<your-deployment>/api/sync/odoo?days=7" \
   -H "Authorization: Bearer <CRON_SECRET>"
 ```
+
+## Marketing Command Centre
+
+### Status: Build order step 1 - hub, auth, shared shell, foundation schema
+
+This is the first step of a much larger, multi-phase build (see the full
+brief for the complete spec - Paid Media, Organic Social, Web & Ecom,
+Retail & Local, Financials, Campaign Tracker, Creative Planner, KOL CRM,
+To-Dos, and an insights engine are not built yet). What's here now is the
+scaffolding everything else plugs into.
+
+**Architecture decision: one app, not two.** The brief as written called
+for a locally-run SQLite app, but also wanted a shared hub with the
+already-deployed Ops sales dashboard - those don't fit together (SQLite on
+one laptop can't be "the team's shared tool"). Went with extending this
+app instead: same Vercel + Supabase (Postgres) + GitHub pipeline, one
+login, `/hub` → `/operations` (existing sales dashboard) or `/marketing`
+(new). Confidential creative/KOL data stays private via auth + Supabase
+RLS rather than via "never leaves a laptop" - cloud-hosted isn't the same
+as public.
+
+**Blocked on:** Google Drive access needs re-authorizing (the connection
+token expired) before I can read the actual Financials and KOL Google
+Sheets. The foundation schema and seed data below are built from the
+brief's own detailed table descriptions, not fabricated - but full
+historical P&L/unit-economics numbers (Dec '24 to date) aren't seeded yet
+since that needs the live sheet, not the brief's summary of it.
+
+**What's built:**
+- `supabase/migrations/0002_hub_and_marketing_foundation.sql` —
+  `profiles` (role + forced-password-change flag), `facts_daily` (the
+  generic cross-source metric table the brief specifies - new data
+  sources plug in as rows, no migration needed), `assumptions`
+  (editable business constants), `app_settings` (taxonomy: pillars,
+  statuses, attribution sources), and extends the existing `stores` table
+  with `address`/`slug`/`is_preopening` rather than creating a duplicate
+  - it's the same four physical locations either way.
+- `supabase/migrations/0003_seed_marketing_foundation.sql` — seeds only
+  what's explicitly given in the brief: the four store addresses (matched
+  onto whatever Odoo already synced, by partial name match - check this
+  landed correctly), the NSA pre-opening store, the LTV multiplier
+  (1.4433) and budget figures, and the taxonomy lists (attribution
+  sources, content pillars, KOL/campaign statuses).
+- Auth: Supabase Auth, email + password, sessions via HTTP-only cookie
+  (`src/middleware.ts` refreshes the session and gates every route except
+  `/login` and `/setup`). Roles (`admin`/`marketing`/`ops`/`viewer`) live
+  on `profiles` and gate which hub tiles are visible.
+- `/setup` — one-time page (gated by `SETUP_SECRET`) that creates the
+  first admin account, since I can't reach your Supabase project from
+  here to run a seed script directly. Refuses to run again once an admin
+  exists.
+- `/change-password` — forced on any account with
+  `must_change_password = true`.
+- `/hub` — config-driven tiles from `config/modules.json`, filtered by
+  role, with live headline stats where the module has data (Operations
+  shows synced line count + last sync status; Marketing shows "Coming
+  soon" since nothing's built there yet).
+- `/marketing` — placeholder page, reserved route.
+
+**Known open item:** the four real stores in Supabase get their
+address/slug attached by matching on `name ilike '%canggu%'` etc. against
+whatever Odoo actually named those `pos.config` records - I don't know
+the exact names from here. Check `select id, name, slug from stores;`
+after running the seed migration; if a store didn't match, update it
+manually.
+
+**Next steps (build order):** Meta Ads adapter + Paid Media module next,
+then Financials (once Drive access is back and the real sheet can be
+read), then the Overview dashboard, then Campaign Tracker + To-Dos.

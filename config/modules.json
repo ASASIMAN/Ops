@@ -1,0 +1,18 @@
+[
+  {
+    "id": "operations",
+    "title": "Operations",
+    "description": "Live sales data synced from Odoo POS across all stores.",
+    "route": "/operations",
+    "roles": ["admin", "ops", "viewer"],
+    "status": "live"
+  },
+  {
+    "id": "marketing",
+    "title": "Marketing",
+    "description": "Campaigns, creative, paid & organic performance, and financials.",
+    "route": "/marketing",
+    "roles": ["admin", "marketing", "viewer"],
+    "status": "coming_soon"
+  }
+]

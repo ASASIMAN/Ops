@@ -77,7 +77,7 @@ export default async function DashboardPage({
   for (const v of toArray(params.color)) returnTo.append("color", v);
   for (const v of toArray(params.size)) returnTo.append("size", v);
   for (const v of toArray(params.category)) returnTo.append("category", v);
-  const returnToUrl = `/dashboard${returnTo.toString() ? `?${returnTo}` : ""}`;
+  const returnToUrl = `/operations${returnTo.toString() ? `?${returnTo}` : ""}`;
 
   const [
     { data: stores },

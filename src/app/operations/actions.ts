@@ -11,7 +11,7 @@ import { runOdooSync } from "@/lib/odoo/sync";
  */
 export async function syncNowAction(formData: FormData) {
   const days = Number(formData.get("days") ?? "7");
-  const returnTo = String(formData.get("returnTo") || "/dashboard");
+  const returnTo = String(formData.get("returnTo") || "/operations");
 
   try {
     await runOdooSync(days);
