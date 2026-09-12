@@ -17,6 +17,7 @@ const MONTH_LABEL = new Intl.DateTimeFormat("en-US", {
 });
 
 const modules = [
+  { href: "/marketing/creative-brief", label: "Creative Brief", status: "live" as const },
   { href: "/marketing/paid-media", label: "Paid Media", status: "live" as const },
   { href: "/marketing/financials", label: "Financials", status: "live" as const },
   { href: "/marketing/import", label: "Data Import", status: "live" as const },
@@ -191,7 +192,6 @@ export default async function MarketingOverviewPage({
 
   const tileAreas = [
     { key: "financials", title: "Budget & Spend", hrefPrefix: "/marketing/financials" },
-    { key: "paid_media", title: "Paid Media", hrefPrefix: "/marketing/paid-media" },
     { key: "content", title: "Content Pipeline", hrefPrefix: "/marketing/creative" },
     { key: "kols", title: "KOLs", hrefPrefix: "/marketing/kols" },
   ];
@@ -268,6 +268,12 @@ export default async function MarketingOverviewPage({
         )}
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
+          <StatusTile
+            title="Creative Brief"
+            status="neutral"
+            caption="What worked, what didn't, and what to make next - see this month's read."
+            href="/marketing/creative-brief"
+          />
           {tiles.map((t) => (
             <StatusTile
               key={t.key}

@@ -296,6 +296,30 @@ all need real credentials/exports that haven't been provided yet.
   GBP since it doesn't support service accounts) but no real credentials
   have been provided yet, so no adapter code exists for these three -
   same "don't build against fake access" rule as everything else here.
+- **`/marketing/creative-brief`** replaces Meta account-health noise
+  (error codes, ranking warnings, CPA outliers) as the headline Meta ads
+  view. No Meta Marketing API - it reads whatever's been dropped for a
+  given month (`meta-ads.csv`, `review.md`, `notes.md`, `ad-links.csv`)
+  via an in-app upload form on that page (`creative_brief_months` table;
+  ad-level numbers reuse the existing `ads`/`ad_performance_snapshots`
+  tables and CSV parser). Three blocks: Content Observations (numbered,
+  each with a Strong/Directional/Anecdote confidence chip - default
+  Anecdote when there's no number behind it), Best Performing Ads
+  (ranked from `ad-links.csv` when present, otherwise the team's own
+  picks from `notes.md`, honestly labeled "nominated by the team"), and
+  What to test next (pulled from `review.md`'s creative-test/open-
+  questions sections). Operational stuff - rankings, CPA, spend, MoM -
+  lives in a collapsed "Account health" disclosure at the bottom, not
+  the headline. `src/lib/insights.ts` had its per-ad CPA-outlier and
+  below-average-ranking alerts removed entirely (they'd become a long,
+  spammy bullet list) - that logic now lives only in this page's Account
+  health section. September 2026 is seeded for real: August's Ads
+  Manager export (`0015_seed_august_ads.sql`) plus the given observations
+  (`0016_seed_september_creative_brief.sql`) - no `review.md` was
+  provided for September, so "What to test next" correctly shows empty
+  rather than a fabricated brief. Bali local time (WITA, UTC+8) and a
+  compact `Rp 2.4M`/`Rp 245k` formatter are used throughout this page
+  only - the rest of the app keeps full-precision Rupiah and UTC dates.
 
 ## How to update this each month
 

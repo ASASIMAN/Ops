@@ -36,28 +36,17 @@ export async function getInsights(): Promise<InsightsResult> {
   const good: Insight[] = [];
   const blocked: { rule: string; reason: string }[] = [];
 
-  const [
-    { data: factRows },
-    { data: assumptionRows },
-    { data: adSnapshots },
-    { data: contentRows },
-    { data: kolRows },
-  ] = await Promise.all([
-    admin
-      .from("facts_daily")
-      .select("date, metric, value")
-      .eq("source", "financials_sheet")
-      .order("date", { ascending: false }),
-    admin.from("assumptions").select("key, value"),
-    admin
-      .from("ad_performance_snapshots")
-      .select(
-        "ad_id, amount_spent_idr, purchases, cost_per_purchase_idr, quality_ranking, engagement_ranking, conversion_ranking, reporting_start, reporting_end, ads ( ad_name )",
-      )
-      .order("reporting_start", { ascending: false }),
-    admin.from("content_calendar").select("id, post_date, production_status, pillar"),
-    admin.from("kols").select("id, name, social_handle, status, opportunity_cost_idr"),
-  ]);
+  const [{ data: factRows }, { data: assumptionRows }, { data: contentRows }, { data: kolRows }] =
+    await Promise.all([
+      admin
+        .from("facts_daily")
+        .select("date, metric, value")
+        .eq("source", "financials_sheet")
+        .order("date", { ascending: false }),
+      admin.from("assumptions").select("key, value"),
+      admin.from("content_calendar").select("id, post_date, production_status, pillar"),
+      admin.from("kols").select("id, name, social_handle, status, opportunity_cost_idr"),
+    ]);
 
   const assumptions = new Map((assumptionRows ?? []).map((a) => [a.key, a.value]));
 
@@ -104,86 +93,14 @@ export async function getInsights(): Promise<InsightsResult> {
     blocked.push({ rule: "Budget pacing", reason: "No monthly spend data entered yet." });
   }
 
-  // 2 & 4. CPA outliers and below-average ranking still spending, from the
-  // most recent ad reporting period.
-  type Snapshot = {
-    ad_id: number;
-    amount_spent_idr: number;
-    purchases: number | null;
-    cost_per_purchase_idr: number | null;
-    quality_ranking: string | null;
-    engagement_ranking: string | null;
-    conversion_ranking: string | null;
-    reporting_start: string;
-    reporting_end: string;
-    ads: { ad_name: string } | null;
-  };
-  const snapshots = (adSnapshots ?? []) as unknown as Snapshot[];
-  const latestPeriod = snapshots[0]
-    ? { start: snapshots[0].reporting_start, end: snapshots[0].reporting_end }
-    : null;
-
-  if (latestPeriod) {
-    const period = snapshots.filter(
-      (s) => s.reporting_start === latestPeriod.start && s.reporting_end === latestPeriod.end,
-    );
-
-    const withPurchases = period.filter(
-      (s) => s.cost_per_purchase_idr && Number(s.purchases) > 0,
-    );
-    if (withPurchases.length >= 3) {
-      const cpas = withPurchases
-        .map((s) => Number(s.cost_per_purchase_idr))
-        .sort((a, b) => a - b);
-      const mid = Math.floor(cpas.length / 2);
-      const median =
-        cpas.length % 2 === 0 ? (cpas[mid - 1] + cpas[mid]) / 2 : cpas[mid];
-      for (const s of withPurchases) {
-        const cpa = Number(s.cost_per_purchase_idr);
-        if (cpa > median * 2) {
-          active.push({
-            text: `"${s.ads?.ad_name}" costs ${currencyFormatter.format(cpa)} per purchase, more than 2x this period's median (${currencyFormatter.format(median)}).`,
-            href: "/marketing/paid-media",
-          });
-        }
-      }
-      const best = withPurchases.reduce((a, b) =>
-        Number(a.cost_per_purchase_idr) < Number(b.cost_per_purchase_idr) ? a : b,
-      );
-      const bestCpa = Number(best.cost_per_purchase_idr);
-      if (bestCpa < median * 0.5) {
-        good.push({
-          text: `"${best.ads?.ad_name}" is this period's best performer at ${currencyFormatter.format(bestCpa)} per purchase, well below the median (${currencyFormatter.format(median)}).`,
-          href: "/marketing/paid-media",
-        });
-      }
-    } else {
-      blocked.push({
-        rule: "CPA outliers (trailing 3-month median)",
-        reason: `Only one ad reporting period has been imported so far (${withPurchases.length} ads with purchases) - the brief wants a trailing 3-month median, which needs at least 3 months of imports.`,
-      });
-    }
-
-    const belowAverageSpending = period.filter(
-      (s) =>
-        Number(s.amount_spent_idr) > 0 &&
-        [s.quality_ranking, s.engagement_ranking, s.conversion_ranking].some((r) =>
-          r?.toLowerCase().includes("below average"),
-        ),
-    );
-    for (const s of belowAverageSpending) {
-      active.push({
-        text: `"${s.ads?.ad_name}" has a Below average ranking but is still spending (${currencyFormatter.format(Number(s.amount_spent_idr))} this period).`,
-        href: "/marketing/paid-media",
-      });
-    }
-  } else {
-    blocked.push({ rule: "CPA outliers / creative fatigue", reason: "No ad data imported yet." });
-  }
-
+  // Per-ad CPA/ranking alerts used to live here as a growing list of
+  // individual "Needs attention" bullets - moved to the Creative Brief's
+  // collapsed Account Health disclosure instead (/marketing/creative-brief),
+  // since a running feed of Meta ad warnings isn't useful to anyone but
+  // whoever's buying media, and it drowned out the signals that are.
   blocked.push({
-    rule: "Creative fatigue (CPM up >20% MoM while reach falls)",
-    reason: "Needs at least 2 imported reporting periods for the same ads to compare month-over-month - only one period exists so far.",
+    rule: "Meta ad account health (CPA outliers, below-average rankings, creative fatigue)",
+    reason: "Moved to the Creative Brief's Account health disclosure (/marketing/creative-brief) so it's not a running alert feed here.",
   });
 
   // 6. Plan adherence.
