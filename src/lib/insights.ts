@@ -36,17 +36,27 @@ export async function getInsights(): Promise<InsightsResult> {
   const good: Insight[] = [];
   const blocked: { rule: string; reason: string }[] = [];
 
-  const [{ data: factRows }, { data: assumptionRows }, { data: contentRows }, { data: kolRows }] =
-    await Promise.all([
-      admin
-        .from("facts_daily")
-        .select("date, metric, value")
-        .eq("source", "financials_sheet")
-        .order("date", { ascending: false }),
-      admin.from("assumptions").select("key, value"),
-      admin.from("content_calendar").select("id, post_date, production_status, pillar"),
-      admin.from("kols").select("id, name, social_handle, status, opportunity_cost_idr"),
-    ]);
+  const [
+    { data: factRows },
+    { data: assumptionRows },
+    { data: contentRows },
+    { data: kolRows },
+    { data: attributionRows },
+  ] = await Promise.all([
+    admin
+      .from("facts_daily")
+      .select("date, metric, value")
+      .eq("source", "financials_sheet")
+      .order("date", { ascending: false }),
+    admin.from("assumptions").select("key, value"),
+    admin.from("content_calendar").select("id, post_date, production_status, pillar"),
+    admin.from("kols").select("id, name, social_handle, status, opportunity_cost_idr"),
+    admin
+      .from("facts_daily")
+      .select("date, metric, value")
+      .eq("source", "visitor_attribution_sheet")
+      .order("date", { ascending: false }),
+  ]);
 
   const assumptions = new Map((assumptionRows ?? []).map((a) => [a.key, a.value]));
 
@@ -183,10 +193,48 @@ export async function getInsights(): Promise<InsightsResult> {
     reason: "KOL records aren't linked to specific organic posts, so opportunity cost can't be compared against the reach/engagement that content delivered.",
   });
 
-  blocked.push({
-    rule: "Attribution reconciliation (stated walk-in source vs actual Maps/Meta data)",
-    reason: "No monthly walk-in attribution counts have been entered, and Google Business Profile data available so far is a single business-wide number, not per-store direction requests.",
-  });
+  // Real walk-in attribution mix, latest month with data.
+  const attributionByMonth = new Map<string, Record<string, number>>();
+  for (const row of attributionRows ?? []) {
+    if (!attributionByMonth.has(row.date)) attributionByMonth.set(row.date, {});
+    attributionByMonth.get(row.date)![row.metric] = Number(row.value);
+  }
+  const latestAttributionDate = [...attributionByMonth.keys()].sort().pop();
+  if (latestAttributionDate) {
+    const m = attributionByMonth.get(latestAttributionDate)!;
+    const channelLabels: Record<string, string> = {
+      walkin_member_count: "Members",
+      walkin_instagram_count: "Instagram",
+      walkin_tiktok_count: "TikTok",
+      walkin_google_maps_count: "Google Maps",
+      walkin_walking_by_count: "Walking by",
+      walkin_friend_referral_count: "Friend referral",
+      walkin_chatgpt_count: "ChatGPT",
+      walkin_wa_business_count: "WA Business",
+    };
+    const channels = Object.entries(channelLabels)
+      .map(([metric, label]) => ({ label, count: m[metric] }))
+      .filter((c) => c.count !== undefined)
+      .sort((a, b) => b.count - a.count);
+    if (channels.length > 0) {
+      const top = channels[0];
+      const total = m.walkin_total_count;
+      const pct = total ? Math.round((top.count / total) * 100) : undefined;
+      good.push({
+        text: `${MONTH_LABEL.format(new Date(latestAttributionDate + "T00:00:00Z"))}: "${top.label}" is the top stated walk-in source (${top.count}${pct !== undefined ? `, ${pct}% of ${total}` : ""}).`,
+        href: "/marketing/financials",
+      });
+    }
+    blocked.push({
+      rule: "Attribution reconciliation (stated walk-in source vs actual Maps/Meta data)",
+      reason: "Real monthly counts of what customers say brought them in are now tracked (see above), but there's still no per-channel Meta/GBP number to check that against - only a single business-wide GBP figure exists, not per-store direction requests or per-channel click data to compare it to.",
+    });
+  } else {
+    blocked.push({
+      rule: "Attribution reconciliation (stated walk-in source vs actual Maps/Meta data)",
+      reason: "No monthly walk-in attribution counts have been entered, and Google Business Profile data available so far is a single business-wide number, not per-store direction requests.",
+    });
+  }
 
   blocked.push({
     rule: "Store performance ranking (revenue normalized by Maps impressions)",

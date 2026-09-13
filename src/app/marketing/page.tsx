@@ -158,17 +158,23 @@ export default async function MarketingOverviewPage({
   const isSimple = view === "simple";
   const supabase = createAdminClient();
 
-  const [{ data: factRows }, { active: attentionItems, good: goodItems }] = await Promise.all([
-    supabase
-      .from("facts_daily")
-      .select("date, metric, value")
-      .eq("source", "financials_sheet")
-      .order("date", { ascending: true }),
-    getInsights(),
-  ]);
+  const [{ data: factRows }, { data: ecomRows }, { active: attentionItems, good: goodItems }] =
+    await Promise.all([
+      supabase
+        .from("facts_daily")
+        .select("date, metric, value")
+        .eq("source", "financials_sheet")
+        .order("date", { ascending: true }),
+      supabase
+        .from("facts_daily")
+        .select("date, metric, value")
+        .eq("source", "ecom_breakdown_sheet")
+        .order("date", { ascending: true }),
+      getInsights(),
+    ]);
 
   const byMonth = new Map<string, MonthMetrics>();
-  for (const row of factRows ?? []) {
+  for (const row of [...(factRows ?? []), ...(ecomRows ?? [])]) {
     if (!byMonth.has(row.date)) byMonth.set(row.date, { date: row.date, metrics: {} });
     byMonth.get(row.date)!.metrics[row.metric] = Number(row.value);
   }
@@ -260,9 +266,15 @@ export default async function MarketingOverviewPage({
               deltaStatus={budgetStatus}
             />
             <Hero
-              label="Meta ROAS*"
-              value={metaRoas ? `${metaRoas.toFixed(2)}x` : "-"}
-              deltaText="*approx"
+              label="Meta ROAS (online)"
+              value={
+                selected.metrics.meta_roas_online !== undefined
+                  ? `${selected.metrics.meta_roas_online.toFixed(2)}x`
+                  : metaRoas
+                    ? `${metaRoas.toFixed(2)}x`
+                    : "-"
+              }
+              deltaText={selected.metrics.meta_roas_online === undefined ? "*approx" : undefined}
             />
           </div>
         )}
@@ -386,19 +398,52 @@ export default async function MarketingOverviewPage({
               note={!selected.metrics.total_budget_idr ? "no budget set that month" : undefined}
             />
             <Kpi
-              label="Meta ROAS*"
-              value={metaRoas ? `${metaRoas.toFixed(2)}x` : "-"}
-              note="*approx, see Financials"
+              label="Meta ROAS (online)"
+              value={
+                selected.metrics.meta_roas_online !== undefined
+                  ? `${selected.metrics.meta_roas_online.toFixed(2)}x`
+                  : metaRoas
+                    ? `${metaRoas.toFixed(2)}x*`
+                    : "-"
+              }
+              note={
+                selected.metrics.meta_roas_online === undefined
+                  ? "*approx (online sales / spend) - not in Unit Economics tab for this month"
+                  : undefined
+              }
+            />
+            <Kpi
+              label="Blended ROAS (online)"
+              value={
+                selected.metrics.blended_roas_online !== undefined
+                  ? `${selected.metrics.blended_roas_online.toFixed(2)}x`
+                  : "-"
+              }
+              note={selected.metrics.blended_roas_online === undefined ? "not in Unit Economics tab yet" : undefined}
+            />
+            <Kpi
+              label="Meta CAC (online)"
+              value={fmtIdr(selected.metrics.meta_cac_online_idr)}
+              note={selected.metrics.meta_cac_online_idr === undefined ? "not in Unit Economics tab yet" : undefined}
+            />
+            <Kpi
+              label="Marketing P/N"
+              value={fmtIdr(selected.metrics.full_marketing_pn_idr ?? selected.metrics.meta_pn_idr)}
+              note={
+                selected.metrics.full_marketing_pn_idr === undefined
+                  ? selected.metrics.meta_pn_idr !== undefined
+                    ? "Meta-only P/N shown - Full Marketing P/N not tracked before Apr '26"
+                    : "not in Unit Economics tab yet"
+                  : undefined
+              }
             />
           </div>
 
           <p className="mt-3 text-xs text-zinc-500">
-            Not shown: blended revenue/ROAS/CAC, Marketing P/N, and walk-in
-            attribution - all need data not yet available (online order
-            counts and the sheet&apos;s exact P/N formula need the Unit
-            Economics tab; walk-in attribution needs the monthly
-            attribution counts table). Both are in the Financials Google
-            Sheet but haven&apos;t been read yet (Drive access pending).
+            From the Unit Economics (&quot;Ecom Breakdown&quot;) tab. Still not shown:
+            offline/WA-side ROAS, CAC and first-time contribution - those
+            columns are blank in the source for every month so far, not
+            something this app can compute on its own.
           </p>
         </>
       )}
