@@ -45,13 +45,16 @@ insert into ad_performance_snapshots (
   quality_ranking, engagement_ranking, conversion_ranking, cost_per_purchase_idr,
   results_initial, results_initial_indicator
 )
-select a.id, v.reporting_start::date, v.reporting_end::date, v.ad_delivery, v.results,
-  v.result_indicator, v.cost_per_results, v.ad_set_budget_raw, v.ad_set_budget_type,
-  v.amount_spent_idr, v.impressions, v.reach, v.total_messaging_contacts,
-  v.new_messaging_contacts, v.purchases, v.ends, v.attribution_setting, v.bid,
-  v.bid_type, v.last_significant_edit::timestamptz, v.quality_ranking,
-  v.engagement_ranking, v.conversion_ranking, v.cost_per_purchase_idr,
-  v.results_initial, v.results_initial_indicator
+select a.id, v.reporting_start::date, v.reporting_end::date, v.ad_delivery::text,
+  v.results::numeric, v.result_indicator::text, v.cost_per_results::numeric,
+  v.ad_set_budget_raw::text, v.ad_set_budget_type::text, v.amount_spent_idr::numeric,
+  v.impressions::numeric, v.reach::numeric, v.total_messaging_contacts::numeric,
+  v.new_messaging_contacts::numeric, v.purchases::numeric, v.ends::text,
+  v.attribution_setting::text, v.bid::numeric, v.bid_type::text,
+  v.last_significant_edit::timestamptz, v.quality_ranking::text,
+  v.engagement_ranking::text, v.conversion_ranking::text,
+  v.cost_per_purchase_idr::numeric, v.results_initial::numeric,
+  v.results_initial_indicator::text
 from (values
   ('New Sales ad – Cold Jan', '2026-08-01', '2026-08-31', 'inactive', null, null, null, 'Using campaign budget', '0', 0.0, 0.0, 0.0, null, null, null, 'Ongoing', '7-day click, 1-day view or 1-day engaged view', 0.0, 'ABSOLUTE_OCPM', '2026-09-12T22:57:45+0800', null, null, null, null, null, null),
   ('New Sales ad – Cold Jan – Copy', '2026-08-01', '2026-08-31', 'inactive', null, null, null, 'Using campaign budget', '0', 0.0, 0.0, 0.0, null, null, null, 'Ongoing', '7-day click, 1-day view or 1-day engaged view', 0.0, 'ABSOLUTE_OCPM', '2026-09-12T22:57:45+0800', null, null, null, null, null, null),
