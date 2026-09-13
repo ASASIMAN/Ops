@@ -54,6 +54,19 @@ export default async function PaidMediaPage({
   const params = await searchParams;
   const supabase = createAdminClient();
 
+  const [{ data: adHistory }, { data: adHighlights }] = await Promise.all([
+    supabase
+      .from("ad_monthly_history")
+      .select(
+        "month_label, scheduled_month, ad_label, spend_idr, purchases, cpm_idr, cost_per_purchase_idr, style_tag, pct_change_vs_previous_month",
+      )
+      .order("scheduled_month", { ascending: true }),
+    supabase
+      .from("ad_monthly_highlights")
+      .select("rank, ad_label, reason, month_label, spend_idr, purchases, cpm_idr, instore_purchase_count")
+      .order("rank", { ascending: true }),
+  ]);
+
   const { data: periodRows } = await supabase
     .from("ad_performance_snapshots")
     .select("reporting_start, reporting_end")
@@ -327,6 +340,90 @@ export default async function PaidMediaPage({
           </tbody>
         </table>
       </div>
+
+      {adHistory && adHistory.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-lg font-medium">Ad history, Dec &apos;24 – Aug &apos;26</h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            Hand-compiled monthly summary from the Financials sheet - a different grain from the
+            table above (campaign-style labels reused across months, not persistent ad IDs).
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead>
+                <tr className="text-xs text-zinc-500">
+                  <th className="px-3 py-2">Month</th>
+                  <th className="px-3 py-2">Ad</th>
+                  <th className="px-3 py-2">Style</th>
+                  <th className="px-3 py-2 text-right">Spend</th>
+                  <th className="px-3 py-2 text-right">Purchases</th>
+                  <th className="px-3 py-2 text-right">CPM</th>
+                  <th className="px-3 py-2 text-right">CPA</th>
+                  <th className="px-3 py-2 text-right">vs prior month</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adHistory.map((r, i) => (
+                  <tr key={i} className="border-t border-zinc-100 dark:border-zinc-800">
+                    <td className="px-3 py-2">{r.month_label}</td>
+                    <td className="px-3 py-2">{r.ad_label}</td>
+                    <td className="px-3 py-2 text-zinc-500">{r.style_tag ?? "-"}</td>
+                    <td className="px-3 py-2 text-right">
+                      {r.spend_idr ? currencyFormatter.format(Number(r.spend_idr)) : "-"}
+                    </td>
+                    <td className="px-3 py-2 text-right">{r.purchases ?? "-"}</td>
+                    <td className="px-3 py-2 text-right">
+                      {r.cpm_idr ? currencyFormatter.format(Number(r.cpm_idr)) : "-"}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {r.cost_per_purchase_idr
+                        ? currencyFormatter.format(Number(r.cost_per_purchase_idr))
+                        : "-"}
+                    </td>
+                    <td className="px-3 py-2 text-right text-zinc-500">
+                      {r.pct_change_vs_previous_month ?? "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {adHighlights && adHighlights.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-lg font-medium">Top ads (all-time highlights)</h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            Hand-curated by rank from the Financials sheet, not computed by this app.
+          </p>
+          <ol className="mt-3 space-y-2">
+            {adHighlights.map((h) => (
+              <li
+                key={h.rank}
+                className="rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800"
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                  <span className="font-medium">
+                    #{h.rank} {h.ad_label}
+                  </span>
+                  <span className="text-xs text-zinc-500">{h.month_label}</span>
+                </div>
+                {h.reason && (
+                  <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{h.reason}</p>
+                )}
+                <p className="mt-1 text-xs text-zinc-500">
+                  {h.spend_idr ? currencyFormatter.format(Number(h.spend_idr)) : "spend n/a"}
+                  {h.purchases !== null && ` · ${h.purchases} purchases`}
+                  {h.cpm_idr && ` · ${currencyFormatter.format(Number(h.cpm_idr))} CPM`}
+                  {h.instore_purchase_count !== null &&
+                    ` · ${h.instore_purchase_count} in-store purchases (same style)`}
+                </p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
     </div>
   );
 }

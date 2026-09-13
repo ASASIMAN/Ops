@@ -19,6 +19,7 @@ const MONTH_LABEL = new Intl.DateTimeFormat("en-US", {
 const modules = [
   { href: "/marketing/creative-brief", label: "Creative Brief", status: "live" as const },
   { href: "/marketing/paid-media", label: "Paid Media", status: "live" as const },
+  { href: "/marketing/attribution", label: "Attribution & Visitors", status: "live" as const },
   { href: "/marketing/financials", label: "Financials", status: "live" as const },
   { href: "/marketing/import", label: "Data Import", status: "live" as const },
   { href: "/marketing/campaigns", label: "Campaign Tracker", status: "live" as const },
