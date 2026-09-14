@@ -116,11 +116,23 @@ instance, since I don't have connection details):
   OAuth needed.
 - Line-item detail (`pos.order.line`) is available, gated by normal Odoo
   access rights for whichever user's API key is used.
-- **Color and size aren't flat fields** — Odoo models them as product
-  variant attributes. The client resolves them by matching attribute
-  names "Color"/"Size" (case-insensitive) — if your instance names these
-  attributes differently, that match needs adjusting in
-  `src/lib/odoo/sales.ts`.
+- **Colour, size and type aren't flat fields** — Odoo models every
+  variant dimension identically, as `product.template.attribute.value`
+  rows. `src/lib/odoo/sales.ts` resolves *all* of them and stores the
+  full attribute-name → value map in `products.variant_attributes`, so
+  nothing is lost whatever your instance names them. Colour and size are
+  pulled into their own columns by name (case-insensitive `color` /
+  `colour` / `size`); `products.variant_type` is whatever attribute is
+  left over, which is how the third dimension gets captured without
+  guessing whether it's called "Type", "Style" or "Fit". If a variant
+  carries more than one leftover attribute they're joined with `" / "`
+  rather than one being picked arbitrarily. If you'd rather see them as
+  separate columns, say what the attributes are actually called and
+  that's a small change.
+- **SKU** is Odoo's `default_code` (the internal reference) on
+  `product.product`, i.e. per variant, not per template.
+- **Order Reference** is `pos.order.name`, stored as
+  `orders.pos_reference`.
 - **Store** is inferred as `pos.order → pos.session → pos.config`, i.e.
   one `pos.config` per physical store. If your four stores aren't set up
   as four separate POS configs, this mapping needs rethinking.
@@ -146,17 +158,44 @@ instance, since I don't have connection details):
   frequency, so for more-than-daily syncing you'd either need a paid plan
   or an external scheduler (e.g. a scheduled GitHub Action hitting the
   endpoint) — not set up yet, flag if you want tighter freshness sooner.
-- `/operations` — filters (date range, store multi-select, category,
-  color, size) as a plain HTML GET form (filter state lives in the URL,
-  no client JS needed), a revenue/units/line-count summary, and a table
-  of matching order lines. Capped at 1000 rows for now — no pagination
-  yet.
+- `supabase/migrations/0022_variants_and_sales_rollups.sql` — adds
+  `products.variant_type` + `products.variant_attributes`, and five
+  Postgres rollup functions (`ops_sales_totals`, `ops_sales_daily`,
+  `ops_sales_by_store`, `ops_top_products`, `ops_top_variants`). The
+  rollups exist because the line table is capped at 1000 rows —
+  aggregating the capped rows in JS would quietly describe only the
+  first 1000 lines, so totals, charts and the top-20 aggregate in
+  Postgres over the whole filtered range instead. Same security posture
+  as the tables: execute revoked from `public`, granted to
+  `service_role` only.
+- `/operations` — a plain HTML GET form (filter state lives in the URL,
+  no client JS anywhere on this page), then:
+  - Filters: date range, **store checkboxes** (nothing ticked = all
+    stores; `NSA` is excluded from the picker), colour, size, and type
+    when variant types exist. There's no category filter.
+  - Summary tiles: revenue, units, orders, line items — over the whole
+    range, not just the visible rows.
+  - **Sales over time** — revenue per trading day as bars on a real
+    date axis. Days with no synced sales get no bar rather than a
+    zero, because the sync only covers the days it's been run for and a
+    gap isn't evidence of a zero-sales day.
+  - **Sales by store** — revenue-share pie plus a labelled legend.
+  - **Top 10 products sold** — by units, variants of a product counted
+    together.
+  - **Top 20 product variants sold** — one row per SKU.
+  - **Sales lines** — date, order reference, store, SKU, product,
+    category, colour, type, size, qty, subtotal. Capped at 1000 rows;
+    everything above it aggregates the full range regardless.
+
+  Dates and daily buckets on this page are Bali time (WITA, UTC+8), so a
+  sale at 07:00 local belongs to that trading day rather than to the
+  previous UTC day.
 
 **What's not built yet (next phases):**
-- Charts / trend visualization
-- Best/worst seller and sell-through views
+- Sell-through / stock-cover views (needs inventory levels, which aren't
+  synced — only sales are)
 - Forecasting formulas on top of the trend data
-- Pagination past 1000 rows
+- Pagination past 1000 rows on the line-level table
 - A historical backfill strategy beyond the rolling daily sync (needs to
   run in date-chunked batches to stay under the 60s function limit - not
   built yet, will design once we know your order volume)

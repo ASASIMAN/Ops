@@ -44,13 +44,26 @@ interface AttributeValue {
   attribute_id: [number, string];
 }
 
+// Attribute names (lowercased) that map onto the dedicated color/size
+// columns. Everything else on a variant is a further dimension we keep
+// verbatim rather than discard - see `variantType` below.
+const COLOR_ATTRIBUTE_NAMES = new Set(["color", "colour", "colors", "colours"]);
+const SIZE_ATTRIBUTE_NAMES = new Set(["size", "sizes"]);
+
 /**
- * Fetches product variants and resolves their Color/Size attribute values.
- * Odoo models color/size as product attributes rather than flat fields, so
- * this does a second call to resolve the attribute value ids collected on
- * each variant, then matches them against attribute names "Color"/"Size"
- * (case-insensitive). Adjust the match if your instance names them
- * differently (e.g. "Colour").
+ * Fetches product variants and resolves every one of their attribute values.
+ * Odoo models colour/size/type as product attributes rather than flat
+ * fields, so this does a second call to resolve the attribute value ids
+ * collected on each variant.
+ *
+ * `variantAttributes` keeps the full attribute-name -> value map exactly as
+ * Odoo reports it, so nothing is lost no matter what this catalogue names
+ * its dimensions. `color` and `size` are pulled out into their own columns
+ * by name (case-insensitive); `variantType` is whatever is left over, which
+ * is how the third dimension gets captured without guessing whether this
+ * instance calls it "Type", "Style", "Fit" or something else. If a variant
+ * carries more than one leftover attribute they're joined with " / " rather
+ * than one of them being picked arbitrarily.
  */
 export async function fetchProducts() {
   const variants = await searchRead<OdooProductVariant>(
@@ -83,17 +96,25 @@ export async function fetchProducts() {
   const valueById = new Map(attributeValues.map((v) => [v.id, v]));
 
   return variants.map((variant) => {
+    const attributes: Record<string, string> = {};
     let color: string | null = null;
     let size: string | null = null;
+    const otherValues: string[] = [];
 
     for (const valueId of variant.product_template_attribute_value_ids) {
       const value = valueById.get(valueId);
       if (!value) continue;
-      const attributeName = value.attribute_id[1]?.toLowerCase() ?? "";
-      if (attributeName === "color" || attributeName === "colour") {
+
+      const attributeName = value.attribute_id[1] ?? "";
+      attributes[attributeName] = value.name;
+
+      const key = attributeName.trim().toLowerCase();
+      if (COLOR_ATTRIBUTE_NAMES.has(key)) {
         color = value.name;
-      } else if (attributeName === "size") {
+      } else if (SIZE_ATTRIBUTE_NAMES.has(key)) {
         size = value.name;
+      } else {
+        otherValues.push(value.name);
       }
     }
 
@@ -106,6 +127,8 @@ export async function fetchProducts() {
       categoryOdooId: variant.categ_id ? variant.categ_id[0] : null,
       color,
       size,
+      variantType: otherValues.length ? otherValues.join(" / ") : null,
+      variantAttributes: Object.keys(attributes).length ? attributes : null,
     };
   });
 }

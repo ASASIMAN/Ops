@@ -67,6 +67,8 @@ export async function runOdooSync(days: number) {
           : null,
         color: p.color,
         size: p.size,
+        variant_type: p.variantType,
+        variant_attributes: p.variantAttributes,
         list_price: p.listPrice,
       })),
       { onConflict: "odoo_product_id" },
