@@ -10,9 +10,9 @@ export const maxDuration = 60;
 export default async function ImportPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; googleError?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, googleError } = await searchParams;
 
   const supabase = createAdminClient();
   const [{ data: lastImport }, { data: lastOdooSync }, { data: lastGa4 }, { data: lastGsc }] =
@@ -162,6 +162,11 @@ export default async function ImportPage({
           Sync now (last 30 days)
         </button>
       </form>
+      {googleError && (
+        <p className="mt-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
+          {googleError}
+        </p>
+      )}
 
       <h2 className="mt-8 text-lg font-medium">Import Meta Ads CSV</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">

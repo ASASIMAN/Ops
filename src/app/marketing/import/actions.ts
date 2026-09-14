@@ -50,11 +50,16 @@ export async function importMetaAdsAction(formData: FormData) {
  * does (30 days) since this is also how the very first sync happens.
  */
 export async function syncGoogleNowAction() {
+  let errors: string[] = [];
   try {
-    await runGoogleSync(30);
-  } catch {
-    // nothing to record here yet (no sync_runs-style table for Google) -
-    // a failure just means the "Last synced" date on this page won't move
+    const result = await runGoogleSync(30);
+    errors = result.errors;
+  } catch (e) {
+    errors = [e instanceof Error ? e.message : String(e)];
+  }
+
+  if (errors.length) {
+    redirect("/marketing/import?googleError=" + encodeURIComponent(errors.join(" | ")));
   }
   redirect("/marketing/import");
 }
