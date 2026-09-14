@@ -291,11 +291,25 @@ all need real credentials/exports that haven't been provided yet.
   after publish" behavior from the brief. Not backfilled: content pillar
   (not tagged in the source export) and asset/reference links (no real
   URLs were captured) - left null rather than invented.
-- GBP/GA4/Search Console: walked through in chat (Google Cloud project,
-  API enablement, service accounts for GA4 + Search Console, OAuth for
-  GBP since it doesn't support service accounts) but no real credentials
-  have been provided yet, so no adapter code exists for these three -
-  same "don't build against fake access" rule as everything else here.
+- **GA4 + Search Console are live.** Turned out the Workspace org blocks
+  service account key creation (`iam.disableServiceAccountKeyCreation`),
+  so both use OAuth instead - one Google Cloud OAuth client, a separate
+  refresh token per API (each authorized with its own scope via the
+  OAuth Playground, since the org policy ruled out service accounts
+  entirely). `src/lib/google/oauth.ts` handles token refresh/caching,
+  `ga4.ts`/`search-console.ts` are the adapters, `sync.ts` upserts into
+  `facts_daily` (`source = 'ga4'` / `'search_console'`), and
+  `/api/sync/google` runs it daily via cron (`vercel.json`) - same shape
+  as the Odoo sync. Real numbers now show on `/marketing/organic-social`
+  and the Data Import hub has a manual "Sync now".
+- **Google Business Profile is blocked on Google, not on us.** OAuth is
+  set up the same way (refresh token obtained, ready to use), but
+  Google's own self-serve API access request was declined for the
+  listing submitted - their automated eligibility check, not a config
+  issue here. No GBP adapter exists yet since there's nothing to call
+  until that's resolved (retry with a different location, or dig into
+  why it was declined). Real GBP data stays limited to the one
+  business-wide number from the Metricool report in the meantime.
 - **`/marketing/creative-brief`** replaces Meta account-health noise
   (error codes, ranking warnings, CPA outliers) as the headline Meta ads
   view. No Meta Marketing API - it reads whatever's been dropped for a

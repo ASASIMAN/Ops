@@ -3,6 +3,10 @@
     {
       "path": "/api/sync/odoo?days=2",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/sync/google?days=3",
+      "schedule": "0 7 * * *"
     }
   ]
 }

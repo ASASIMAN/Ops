@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseMetaAdsCsv } from "@/lib/adapters/meta";
 import { ingestMetaAdsRows } from "@/lib/adapters/ingest-meta-ads";
+import { runGoogleSync } from "@/lib/google/sync";
 
 export async function importMetaAdsAction(formData: FormData) {
   const file = formData.get("file");
@@ -40,4 +41,20 @@ export async function importMetaAdsAction(formData: FormData) {
   });
 
   redirect("/marketing/paid-media");
+}
+
+/**
+ * Manual trigger for the GA4 + Search Console sync, same "no HTTP
+ * round-trip, errors surfaced via what's already in facts_daily" pattern
+ * as Odoo's syncNowAction. Backfills further back than the daily cron
+ * does (30 days) since this is also how the very first sync happens.
+ */
+export async function syncGoogleNowAction() {
+  try {
+    await runGoogleSync(30);
+  } catch {
+    // nothing to record here yet (no sync_runs-style table for Google) -
+    // a failure just means the "Last synced" date on this page won't move
+  }
+  redirect("/marketing/import");
 }

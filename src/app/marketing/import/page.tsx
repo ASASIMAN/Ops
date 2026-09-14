@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { importMetaAdsAction } from "./actions";
+import { importMetaAdsAction, syncGoogleNowAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 // Applies to this route's Server Actions too (the import form) - parsing
@@ -15,22 +15,37 @@ export default async function ImportPage({
   const { error } = await searchParams;
 
   const supabase = createAdminClient();
-  const [{ data: lastImport }, { data: lastOdooSync }] = await Promise.all([
-    supabase
-      .from("ad_imports")
-      .select(
-        "filename, reporting_start, reporting_end, row_count, skipped_row_count, unmapped_columns, missing_expected_columns, imported_at",
-      )
-      .order("imported_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from("sync_runs")
-      .select("status, started_at")
-      .order("started_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
+  const [{ data: lastImport }, { data: lastOdooSync }, { data: lastGa4 }, { data: lastGsc }] =
+    await Promise.all([
+      supabase
+        .from("ad_imports")
+        .select(
+          "filename, reporting_start, reporting_end, row_count, skipped_row_count, unmapped_columns, missing_expected_columns, imported_at",
+        )
+        .order("imported_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("sync_runs")
+        .select("status, started_at")
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("facts_daily")
+        .select("date")
+        .eq("source", "ga4")
+        .order("date", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("facts_daily")
+        .select("date")
+        .eq("source", "search_console")
+        .order("date", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
   const sources: {
     name: string;
@@ -65,17 +80,23 @@ export default async function ImportPage({
       name: "Google Business Profile (per-store)",
       status: "not_connected",
       detail:
-        "Only the one business-wide number from the Metricool report exists. Needs the GBP Performance API for per-location data.",
+        "OAuth set up, but Google's own API access request was declined for this listing (doesn't meet their eligibility criteria yet). Only the one business-wide number from the Metricool report exists in the meantime.",
     },
     {
       name: "Google Analytics (GA4)",
-      status: "not_connected",
-      detail: "Not connected - no property access set up yet.",
+      status: lastGa4 ? "connected" : "not_connected",
+      detail: lastGa4
+        ? `Auto-synced daily. Latest data: ${lastGa4.date}.`
+        : "OAuth set up - click \"Sync now\" below to pull the first batch.",
+      href: "/marketing/organic-social",
     },
     {
       name: "Google Search Console",
-      status: "not_connected",
-      detail: "Not connected - no site access set up yet.",
+      status: lastGsc ? "connected" : "not_connected",
+      detail: lastGsc
+        ? `Auto-synced daily. Latest data: ${lastGsc.date}.`
+        : "OAuth set up - click \"Sync now\" below to pull the first batch.",
+      href: "/marketing/organic-social",
     },
     {
       name: "Shopify",
@@ -127,6 +148,20 @@ export default async function ImportPage({
           </div>
         ))}
       </div>
+
+      <h2 className="mt-8 text-lg font-medium">Google Analytics + Search Console</h2>
+      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+        Auto-syncs daily via cron. Use this to pull the first batch now, or to
+        pull immediately after fixing a credential issue.
+      </p>
+      <form action={syncGoogleNowAction} className="mt-3">
+        <button
+          type="submit"
+          className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+        >
+          Sync now (last 30 days)
+        </button>
+      </form>
 
       <h2 className="mt-8 text-lg font-medium">Import Meta Ads CSV</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">

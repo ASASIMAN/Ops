@@ -35,7 +35,7 @@ function Stat({ label, value }: { label: string; value: string | number }) {
 export default async function OrganicSocialPage() {
   const admin = createAdminClient();
 
-  const [{ data: factRows }, { data: postRows }] = await Promise.all([
+  const [{ data: factRows }, { data: postRows }, { data: googleRows }] = await Promise.all([
     admin
       .from("facts_daily")
       .select("date, source, metric, value")
@@ -46,6 +46,12 @@ export default async function OrganicSocialPage() {
         "id, post_type, published_at, text_snippet, impressions, interactions, reach, likes, saved, comments, shares",
       )
       .order("impressions", { ascending: false, nullsFirst: false }),
+    admin
+      .from("facts_daily")
+      .select("date, source, metric, value")
+      .in("source", ["ga4", "search_console"])
+      .order("date", { ascending: false })
+      .limit(60 * 10), // ~60 days x up to 10 metrics/day across both sources
   ]);
 
   const metrics: Record<string, number> = {};
@@ -54,6 +60,17 @@ export default async function OrganicSocialPage() {
   }
   const posts = (postRows ?? []) as Post[];
   const hasData = Object.keys(metrics).length > 0;
+
+  // Trailing 30 real days of GA4/Search Console data, if any has synced yet.
+  const googleFacts = (googleRows ?? []) as FactRow[];
+  const last30Dates = [...new Set(googleFacts.map((r) => r.date))].sort().slice(-30);
+  const last30 = googleFacts.filter((r) => last30Dates.includes(r.date));
+  const sum = (metric: string) => last30.filter((r) => r.metric === metric).reduce((s, r) => s + r.value, 0);
+  const avg = (metric: string) => {
+    const rows = last30.filter((r) => r.metric === metric);
+    return rows.length ? rows.reduce((s, r) => s + r.value, 0) / rows.length : undefined;
+  };
+  const hasGoogleData = last30Dates.length > 0;
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
@@ -105,6 +122,46 @@ export default async function OrganicSocialPage() {
             Not confirmed to be literally GA4 - the report doesn&apos;t say
             what feeds this. Shopify revenue/orders aren&apos;t shown at
             all: no Shopify export or API access has been provided.
+          </p>
+        </>
+      )}
+
+      <h2 className="mt-6 text-sm font-medium text-zinc-500">
+        Website &amp; Search (Google Analytics + Search Console, trailing 30 real days)
+      </h2>
+      {!hasGoogleData ? (
+        <p className="mt-2 text-sm text-zinc-500">
+          Not synced yet - go to{" "}
+          <a href="/marketing/import" className="underline">
+            Data Import
+          </a>{" "}
+          and click &quot;Sync now&quot; under Google Analytics + Search Console.
+        </p>
+      ) : (
+        <>
+          <div className="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Stat label="Sessions (GA4)" value={sum("ga4_sessions").toLocaleString()} />
+            <Stat label="Active users (GA4)" value={sum("ga4_active_users").toLocaleString()} />
+            <Stat
+              label="Engagement rate (GA4)"
+              value={avg("ga4_engagement_rate") !== undefined ? `${(avg("ga4_engagement_rate")! * 100).toFixed(1)}%` : "-"}
+            />
+            <Stat label="Page views (GA4)" value={sum("ga4_page_views").toLocaleString()} />
+            <Stat label="Search clicks (GSC)" value={sum("gsc_clicks").toLocaleString()} />
+            <Stat label="Search impressions (GSC)" value={sum("gsc_impressions").toLocaleString()} />
+            <Stat
+              label="Search CTR (GSC)"
+              value={avg("gsc_ctr") !== undefined ? `${(avg("gsc_ctr")! * 100).toFixed(1)}%` : "-"}
+            />
+            <Stat
+              label="Avg. search position (GSC)"
+              value={avg("gsc_avg_position") !== undefined ? avg("gsc_avg_position")!.toFixed(1) : "-"}
+            />
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            {last30Dates[0]} to {last30Dates[last30Dates.length - 1]} - real API
+            data, auto-synced daily. This is the actual website/search source
+            (unlike the unconfirmed website block above from the Metricool report).
           </p>
         </>
       )}
