@@ -374,11 +374,99 @@ all need real credentials/exports that haven't been provided yet.
   compact `Rp 2.4M`/`Rp 245k` formatter are used throughout this page
   only - the rest of the app keeps full-precision Rupiah and UTC dates.
 
+## Forecasting (/forecast)
+
+Five sections, all built on the same synced Odoo sales data as the Sales
+Dashboard, plus a new stock sync:
+
+1. **Restock timing & quantity** - a vendor-level alert (combined
+   office + all-stores stock vs. demand over vendor lead time), an
+   independent per-store transfer alert, a suggested split of an
+   incoming order across stores (proportional to each store's
+   forecasted demand, not even), and a combined red/yellow/green risk
+   view per SKU.
+2. **Revenue forecast** - monthly, company-wide and per-store, as a
+   low/expected/high band, plus a category breakdown.
+3. **Monthly demand forecast** - units per SKU, rollable to
+   category/company, filterable by store, with the underlying trend
+   shown alongside the number.
+4. **Top & low sellers** - ranking with trend direction, cross-referenced
+   with stock (stockout risk on top sellers; dead-stock candidates on
+   low/zero sellers still holding office stock).
+5. **Forecast vs. actual** - a rolling one-month-ahead backtest (each
+   point predicts using only the months before it), overall and per-SKU
+   MAPE, and how that accuracy trends as more months accumulate.
+
+**Forecast engine** (`src/lib/forecast/engine.ts`) is the one thing every
+section above reads from - restock (§1) forecasts over a daily bucket,
+revenue/demand (§2/§3) over a monthly bucket, but it's the same
+`forecast()` function either way, so the two can't drift onto different
+views of "what will we sell." Default method is Holt's linear
+exponential smoothing (level + trend, no seasonality); a plain moving
+average is the fallback for series too short for Holt. Swapping the
+method is a config change (`ForecastOptions.method`), not a rewrite -
+nothing in `src/app/forecast` or `src/lib/forecast/data.ts` needs to
+change to add a new method.
+
+**Data model additions** (`supabase/migrations/0023_forecast_inventory.sql`):
+- `stock_locations` - the office (staging warehouse) and each store's
+  Odoo stock location, since the office is a `stock.location`, not a
+  `pos.config`, and can't live in `stores`.
+- `stock_levels` - current on-hand qty per SKU per location, from Odoo
+  `stock.quant`. Overwritten in place each sync, not a history table.
+- `vendor_reorder_settings` - per-SKU (or one global default) lead time
+  and target service level.
+- `ops_period_demand()` - one flexible Postgres function (day/week/month
+  bucket, optional store/product filters) that every rollup above reads
+  through, same reasoning as `ops_sales_daily` etc. in migration 0022.
+
+**Stock sync**: `runStockSync()` in `src/lib/odoo/sync.ts`, triggered by
+the "Sync stock now" button on `/forecast` (a stock.quant snapshot has no
+useful date range, so unlike the sales sync there's no `days` parameter -
+it always syncs the current position). Shares the `sync_runs` table with
+the sales sync, distinguished by a new `sync_type` column.
+
+**Flagged assumptions / open items** - none of these are silently
+defaulted; each is called out where it's used in code and in the UI:
+- **Vendor lead time per SKU** isn't loaded yet (the business will send
+  it) - `vendor_reorder_settings.lead_time_days` is null until then, and
+  the restock calc falls back to a placeholder
+  (`FALLBACK_LEAD_TIME_DAYS = 14` days, `src/lib/forecast/restock.ts`),
+  visibly flagged with `*` on every affected row.
+- **Office → store transfer lead time** has no data source at all yet
+  (it's internal logistics, not a vendor lead time) -
+  `FALLBACK_TRANSFER_LEAD_TIME_DAYS = 2` days is a guess, same file,
+  same flagging.
+- **Nusa Dua's stock location** wasn't included in the tracked Odoo
+  locations given (`ASOF/Stock`, `PRN/Stock`, `CGU/Stock`, `UBD/Stock`,
+  `NSA/Stock` map to the office plus Pererenan/Canggu/Ubud/NSA) - Nusa
+  Dua's sales still sync and forecast normally, but it has no stock
+  data, so it's absent from the restock/transfer views until its
+  location code is confirmed. See `TRACKED_STOCK_LOCATIONS` in
+  `src/lib/odoo/stock.ts`.
+- **No cost data** (unit cost, holding cost) - by design for this phase;
+  safety stock uses a target-service-level model (z-score x demand
+  std-dev x sqrt(lead time)), not EOQ/cost-based reorder math.
+- **No seasonality modeling** - current sales history (a few thousand
+  order lines total) is far short of the multiple full years a seasonal
+  method would need to fit reliably. Holt's trend line is shown, but
+  it's a trend, not a seasonal decomposition - revisit once ≥24 months
+  of history exist.
+- **Stock quantity is gross on-hand** (`stock.quant.quantity`), not
+  netted against reservations - there's no reservation data synced to
+  net against yet.
+- **MAPE in §5 is noisy by design** on this little data (one-step-ahead
+  backtest, in-sample residual bands) - treat forecast bands and
+  accuracy numbers as indicative, not precise intervals.
+
 ## How to update this each month
 
 1. **Odoo sales** sync automatically (daily cron) - no action needed
    unless `/operations` shows a failed sync, in which case click **Sync
    now** there.
+1a. **Odoo stock** doesn't have a cron yet - click **Sync stock now** on
+   `/forecast` to refresh on-hand quantities before relying on the
+   restock alerts.
 2. **Meta Ads**: export the ads report from Ads Manager as a CSV, go to
    **Marketing → Data Import**, upload it. Safe to re-upload the same or
    an overlapping period - it updates rather than duplicates.
