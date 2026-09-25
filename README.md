@@ -2,8 +2,9 @@
 
 Next.js (App Router) + TypeScript + Tailwind CSS + Supabase. One deployed
 app, gated by login, with a hub that routes into separate workspaces:
-**Operations** (live — the Odoo POS sales dashboard) and **Marketing**
-(in progress — the Marketing Command Centre).
+**Operations** (live — the Odoo POS sales dashboard), **Marketing**
+(in progress — the Marketing Command Centre), and **Forecast** (live — a
+production forecast built on Operations' synced sales data).
 
 ### Local development
 
@@ -65,6 +66,7 @@ src/app/change-password/forced password change on first login
 src/app/hub/             post-login landing - two tiles, config-driven
 src/app/operations/     Sales Dashboard (Odoo POS data) - the "Operations" tile
 src/app/marketing/      Marketing Command Centre - the "Marketing" tile (stub for now)
+src/app/forecast/       Production Forecast - demand per SKU from Operations' sales data
 src/app/api/sync/       Odoo -> Supabase sync job
 src/components/shell/   shared chrome (header, sign-out) used by every gated route
 src/lib/supabase/       Supabase client helpers (browser, server, admin/service-role)
