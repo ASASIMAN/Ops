@@ -5,18 +5,16 @@ import { searchRead } from "./rpc";
 
 /**
  * The stock locations this app tracks, given directly by the business
- * (see chat: "the [office] location id is asof/stock" and "stock quants
- * ... ASOF/Stock, PRN/Stock, CGU/Stock, UBD/Stock, NSA/Stock"), mapped to
- * the matching `stores.slug` (from migration 0003) or `"office"`.
+ * (see chat: the office location is "ASOF/Stock"; the store locations
+ * are "PRN/Stock", "CGU/Stock", "UBD/Stock", "NSA/Stock" - confirmed
+ * "NSA/Stock" is Nusa Dua's location, not the pre-opening "NSA" store
+ * seeded in migration 0003), mapped to the matching `stores.slug` or
+ * `"office"`.
  *
- * FLAGGED ASSUMPTION: this list has 4 store locations (Pererenan, Canggu,
- * Ubud, NSA) plus the office, but migration 0003 seeded *4 real* stores
- * including Nusa Dua ('nusa-dua') - a stock location for Nusa Dua was not
- * given. Nusa Dua is left unsynced (no stock_locations row) until its
- * location code is confirmed, rather than guessing a code for it. Its
- * sales still sync and forecast normally - only its stock levels, and
- * therefore its store-transfer/restock alerts, will be missing. Add its
- * entry here (and to the migration comment) once known.
+ * This covers the office plus all 4 real stores (Pererenan, Canggu,
+ * Ubud, Nusa Dua). The pre-opening store (slug 'nsa', not yet trading)
+ * has no stock location here, which is expected - it hasn't received
+ * stock yet.
  */
 export const TRACKED_STOCK_LOCATIONS: {
   completeName: string;
@@ -27,7 +25,7 @@ export const TRACKED_STOCK_LOCATIONS: {
   { completeName: "PRN/Stock", kind: "store", storeSlug: "pererenan" },
   { completeName: "CGU/Stock", kind: "store", storeSlug: "canggu" },
   { completeName: "UBD/Stock", kind: "store", storeSlug: "ubud" },
-  { completeName: "NSA/Stock", kind: "store", storeSlug: "nsa" },
+  { completeName: "NSA/Stock", kind: "store", storeSlug: "nusa-dua" },
 ];
 
 export interface OdooStockLocation {

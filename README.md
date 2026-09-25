@@ -437,13 +437,6 @@ defaulted; each is called out where it's used in code and in the UI:
   (it's internal logistics, not a vendor lead time) -
   `FALLBACK_TRANSFER_LEAD_TIME_DAYS = 2` days is a guess, same file,
   same flagging.
-- **Nusa Dua's stock location** wasn't included in the tracked Odoo
-  locations given (`ASOF/Stock`, `PRN/Stock`, `CGU/Stock`, `UBD/Stock`,
-  `NSA/Stock` map to the office plus Pererenan/Canggu/Ubud/NSA) - Nusa
-  Dua's sales still sync and forecast normally, but it has no stock
-  data, so it's absent from the restock/transfer views until its
-  location code is confirmed. See `TRACKED_STOCK_LOCATIONS` in
-  `src/lib/odoo/stock.ts`.
 - **No cost data** (unit cost, holding cost) - by design for this phase;
   safety stock uses a target-service-level model (z-score x demand
   std-dev x sqrt(lead time)), not EOQ/cost-based reorder math.
