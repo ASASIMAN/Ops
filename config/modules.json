@@ -14,5 +14,13 @@
     "route": "/marketing",
     "roles": ["admin", "marketing", "viewer"],
     "status": "live"
+  },
+  {
+    "id": "forecast",
+    "title": "Forecast",
+    "description": "Production forecast - projected demand per SKU from Operations' synced sales data, to size what to produce next.",
+    "route": "/forecast",
+    "roles": ["admin", "ops", "viewer"],
+    "status": "live"
   }
 ]
