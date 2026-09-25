@@ -8,6 +8,14 @@
     "status": "live"
   },
   {
+    "id": "forecast",
+    "title": "Forecasting",
+    "description": "Restock alerts, revenue/demand forecasts, top & low sellers, and forecast accuracy - built on the Odoo sales sync.",
+    "route": "/forecast",
+    "roles": ["admin", "ops", "viewer"],
+    "status": "live"
+  },
+  {
     "id": "marketing",
     "title": "Marketing",
     "description": "Overview, Paid Media, and Financials are live; Campaign Tracker, Creative Planner, KOL CRM, and more are being built out module by module.",
