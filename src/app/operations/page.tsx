@@ -89,6 +89,17 @@ function growthPct(current: number, previous: number | null): number | null {
   return ((current - previous) / previous) * 100;
 }
 
+/** Every attribute Odoo has for a variant (products.variant_attributes),
+ * as "Name: Value, Name: Value" - the raw sync, not just the colour/size/
+ * type columns broken out from it. */
+function formatAttributes(attrs: Record<string, string> | null): string {
+  if (!attrs) return "-";
+  const entries = Object.entries(attrs);
+  return entries.length
+    ? entries.map(([name, value]) => `${name}: ${value}`).join(", ")
+    : "-";
+}
+
 type ChartPoint = { x: number; y: number } | null;
 
 /** SVG path across a series of points, starting a new subpath after every
@@ -140,6 +151,7 @@ interface SearchParams {
   color?: string | string[];
   size?: string | string[];
   type?: string | string[];
+  product?: string;
 }
 
 interface DailyRow {
@@ -168,6 +180,7 @@ interface TopVariantRow {
   size: string | null;
   variant_type: string | null;
   category_name: string | null;
+  variant_attributes: Record<string, string> | null;
   units: number;
   revenue: number;
 }
@@ -273,6 +286,7 @@ export default async function DashboardPage({
   const colors = toArray(params.color);
   const sizes = toArray(params.size);
   const types = toArray(params.type);
+  const productName = (params.product ?? "").trim();
 
   // Half-open [from 00:00 WITA, day-after-to 00:00 WITA) so the last day is
   // included whole rather than stopping a second short of midnight.
@@ -300,6 +314,7 @@ export default async function DashboardPage({
   for (const v of toArray(params.color)) returnTo.append("color", v);
   for (const v of toArray(params.size)) returnTo.append("size", v);
   for (const v of toArray(params.type)) returnTo.append("type", v);
+  if (params.product) returnTo.set("product", params.product);
   const returnToUrl = `/operations${returnTo.toString() ? `?${returnTo}` : ""}`;
 
   // products.variant_type only exists once migration 0022 has been run.
@@ -315,6 +330,7 @@ export default async function DashboardPage({
     p_colors: colors.length ? colors : null,
     p_sizes: sizes.length ? sizes : null,
     p_types: types.length ? types : null,
+    p_product_name: productName || null,
   };
   const rollupArgs = { p_from: fromIso, p_to: toIso, ...filterArgs };
   const prevRollupArgs = { p_from: prevFromIso, p_to: prevToIso, ...filterArgs };
@@ -378,6 +394,7 @@ export default async function DashboardPage({
     "color",
     "size",
     hasVariantType ? "variant_type" : null,
+    hasVariantType ? "variant_attributes" : null,
     "category_id",
     "product_categories ( id, name )",
   ]
@@ -403,6 +420,7 @@ export default async function DashboardPage({
   if (sizes.length) query = query.in("products.size", sizes);
   if (types.length && hasVariantType)
     query = query.in("products.variant_type", types);
+  if (productName) query = query.ilike("products.name", `%${productName}%`);
 
   const { data: rows, error } = await query;
 
@@ -422,6 +440,7 @@ export default async function DashboardPage({
       color: string | null;
       size: string | null;
       variant_type?: string | null;
+      variant_attributes?: Record<string, string> | null;
       product_categories: { id: number; name: string } | null;
     } | null;
   };
@@ -655,14 +674,25 @@ export default async function DashboardPage({
         method="get"
         className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
       >
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <label className="flex flex-col gap-1 text-sm">
+          Product name
+          <input
+            type="text"
+            name="product"
+            defaultValue={productName}
+            placeholder="Search by product name..."
+            className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent"
+          />
+        </label>
+
+        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
           <label className="flex flex-col gap-1 text-sm">
             From
             <input
               type="date"
               name="from"
               defaultValue={from}
-              className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent"
+              className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent dark:[&::-webkit-calendar-picker-indicator]:invert"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -671,7 +701,7 @@ export default async function DashboardPage({
               type="date"
               name="to"
               defaultValue={to}
-              className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent"
+              className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent dark:[&::-webkit-calendar-picker-indicator]:invert"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -1072,10 +1102,11 @@ export default async function DashboardPage({
                   <th className="px-3 py-2">#</th>
                   <th className="px-3 py-2">SKU</th>
                   <th className="px-3 py-2">Product</th>
-                  <th className="px-3 py-2">Colour</th>
+                  <th className="px-3 py-2">Variants</th>
                   <th className="px-3 py-2">Type</th>
                   <th className="px-3 py-2">Size</th>
                   <th className="px-3 py-2">Category</th>
+                  <th className="px-3 py-2">Attributes</th>
                   <th className="px-3 py-2 text-right">Units</th>
                   <th className="px-3 py-2 text-right">Revenue</th>
                 </tr>
@@ -1093,6 +1124,9 @@ export default async function DashboardPage({
                     <td className="px-3 py-2">{v.variant_type ?? "-"}</td>
                     <td className="px-3 py-2">{v.size ?? "-"}</td>
                     <td className="px-3 py-2">{v.category_name ?? "-"}</td>
+                    <td className="px-3 py-2 text-xs text-zinc-500">
+                      {formatAttributes(v.variant_attributes)}
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {v.units.toLocaleString()}
                     </td>
@@ -1103,7 +1137,7 @@ export default async function DashboardPage({
                 ))}
                 {!topVariants.length && (
                   <tr>
-                    <td colSpan={9} className="px-3 py-6 text-center text-zinc-500">
+                    <td colSpan={10} className="px-3 py-6 text-center text-zinc-500">
                       No sales in this range yet.
                     </td>
                   </tr>
@@ -1114,8 +1148,8 @@ export default async function DashboardPage({
         )}
         {!hasVariantType && (
           <p className="mt-2 text-xs text-amber-700 dark:text-amber-500">
-            The Type column is empty until migration 0022 has been run and the
-            next Odoo sync has populated it.
+            The Type and Attributes columns are empty until migration 0022
+            has been run and the next Odoo sync has populated them.
           </p>
         )}
       </div>
@@ -1136,9 +1170,10 @@ export default async function DashboardPage({
                 <th className="px-3 py-2">SKU</th>
                 <th className="px-3 py-2">Product</th>
                 <th className="px-3 py-2">Category</th>
-                <th className="px-3 py-2">Colour</th>
+                <th className="px-3 py-2">Variants</th>
                 <th className="px-3 py-2">Type</th>
                 <th className="px-3 py-2">Size</th>
+                <th className="px-3 py-2">Attributes</th>
                 <th className="px-3 py-2 text-right">Qty</th>
                 <th className="px-3 py-2 text-right">Subtotal</th>
               </tr>
@@ -1168,6 +1203,9 @@ export default async function DashboardPage({
                   <td className="px-3 py-2">{line.products?.color ?? "-"}</td>
                   <td className="px-3 py-2">{line.products?.variant_type ?? "-"}</td>
                   <td className="px-3 py-2">{line.products?.size ?? "-"}</td>
+                  <td className="px-3 py-2 text-xs text-zinc-500">
+                    {formatAttributes(line.products?.variant_attributes ?? null)}
+                  </td>
                   <td className="px-3 py-2 text-right">{line.qty}</td>
                   <td className="px-3 py-2 text-right">
                     {currencyFormatter.format(Number(line.subtotal))}
@@ -1176,7 +1214,7 @@ export default async function DashboardPage({
               ))}
               {!lines.length && (
                 <tr>
-                  <td colSpan={11} className="px-3 py-6 text-center text-zinc-500">
+                  <td colSpan={12} className="px-3 py-6 text-center text-zinc-500">
                     No sales data for this filter yet.
                   </td>
                 </tr>
