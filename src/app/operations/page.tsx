@@ -238,7 +238,6 @@ export default async function DashboardPage({
     { data: stores },
     { data: colorRows },
     { data: sizeRows },
-    { data: typeRows },
     { data: lastSync },
     totalsResult,
     dailyResult,
@@ -249,12 +248,6 @@ export default async function DashboardPage({
     supabase.from("stores").select("id, name").eq("active", true).order("name"),
     supabase.from("products").select("color").not("color", "is", null),
     supabase.from("products").select("size").not("size", "is", null),
-    hasVariantType
-      ? supabase
-          .from("products")
-          .select("variant_type")
-          .not("variant_type", "is", null)
-      : Promise.resolve({ data: [] as { variant_type: string }[] }),
     supabase
       .from("sync_runs")
       .select("status, started_at, finished_at, orders_synced, error_message")
@@ -286,9 +279,6 @@ export default async function DashboardPage({
   ).sort();
   const availableSizes = Array.from(
     new Set((sizeRows ?? []).map((r) => r.size as string)),
-  ).sort();
-  const availableTypes = Array.from(
-    new Set((typeRows ?? []).map((r) => r.variant_type as string)),
   ).sort();
 
   const productColumns = [
@@ -568,29 +558,6 @@ export default async function DashboardPage({
             Nothing ticked = all stores.
           </p>
         </fieldset>
-
-        {hasVariantType && availableTypes.length > 0 && (
-          <fieldset className="mt-4">
-            <legend className="text-sm">Type</legend>
-            <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-2">
-              {availableTypes.map((t) => (
-                <label
-                  key={t}
-                  className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300"
-                >
-                  <input
-                    type="checkbox"
-                    name="type"
-                    value={t}
-                    defaultChecked={types.includes(t)}
-                    className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
-                  />
-                  {t}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-        )}
 
         <button
           type="submit"
