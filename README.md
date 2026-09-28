@@ -210,6 +210,15 @@ Supabase migrations here are plain `.sql` files, run manually for now (no
 CLI/CI wiring yet): open the Supabase dashboard → SQL Editor → paste each
 file's contents in order → run.
 
+**After running one that adds or changes a function's parameters**
+(anything that does `create or replace function` with a different
+signature, or `drop function` + `create function`) - PostgREST caches
+function signatures, and that cache doesn't always refresh immediately.
+If the app then says something like `Could not find the function
+public.foo(...) in the schema cache` even though the migration ran
+successfully, run `NOTIFY pgrst, 'reload schema';` in the SQL editor (or
+Project Settings → API → Reload schema cache) to force it.
+
 ### Triggering a sync manually
 
 Easiest: click **"Sync now"** on the `/operations` page itself - it runs

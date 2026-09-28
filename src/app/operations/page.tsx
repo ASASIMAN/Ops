@@ -245,9 +245,13 @@ function GrowthBadge({ pct, spanDays }: { pct: number | null; spanDays: number }
 function RollupUnavailable({ message }: { message: string }) {
   return (
     <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
-      Not shown - the sales rollup functions aren&apos;t in the database yet.
-      Run <code>supabase/migrations/0022_variants_and_sales_rollups.sql</code>{" "}
-      in the Supabase SQL editor. ({message})
+      Not shown - a sales rollup function isn&apos;t available. Make sure
+      every migration in <code>supabase/migrations/</code> numbered 0022 and
+      above has been run, in order, in the Supabase SQL editor. If you just
+      ran one and this is still showing, PostgREST&apos;s schema cache is
+      probably stale - run <code>{"NOTIFY pgrst, 'reload schema';"}</code> in
+      the SQL editor (or Project Settings → API → Reload schema cache).
+      ({message})
     </p>
   );
 }
