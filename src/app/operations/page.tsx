@@ -3,7 +3,6 @@ import { syncNowAction } from "./actions";
 import { BALI_TZ, formatRupiahCompact } from "@/lib/creative-brief/format";
 import { paletteCss, paletteVar } from "@/lib/viz/palette";
 import { SalesOverTimeChart } from "./sales-over-time-chart";
-import { DateField } from "./date-field";
 
 export const dynamic = "force-dynamic";
 // Applies to this route's Server Actions too (e.g. the "Sync now" button) -
@@ -90,6 +89,17 @@ function growthPct(current: number, previous: number | null): number | null {
   return ((current - previous) / previous) * 100;
 }
 
+/** Every attribute Odoo has for a variant (products.variant_attributes),
+ * as "Name: Value, Name: Value" - the raw sync, not just the colour/size/
+ * type columns broken out from it. */
+function formatAttributes(attrs: Record<string, string> | null): string {
+  if (!attrs) return "-";
+  const entries = Object.entries(attrs);
+  return entries.length
+    ? entries.map(([name, value]) => `${name}: ${value}`).join(", ")
+    : "-";
+}
+
 type ChartPoint = { x: number; y: number } | null;
 
 /** SVG path across a series of points, starting a new subpath after every
@@ -170,6 +180,7 @@ interface TopVariantRow {
   size: string | null;
   variant_type: string | null;
   category_name: string | null;
+  variant_attributes: Record<string, string> | null;
   units: number;
   revenue: number;
 }
@@ -383,6 +394,7 @@ export default async function DashboardPage({
     "color",
     "size",
     hasVariantType ? "variant_type" : null,
+    hasVariantType ? "variant_attributes" : null,
     "category_id",
     "product_categories ( id, name )",
   ]
@@ -428,6 +440,7 @@ export default async function DashboardPage({
       color: string | null;
       size: string | null;
       variant_type?: string | null;
+      variant_attributes?: Record<string, string> | null;
       product_categories: { id: number; name: string } | null;
     } | null;
   };
@@ -673,8 +686,24 @@ export default async function DashboardPage({
         </label>
 
         <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <DateField label="From" name="from" defaultValue={from} />
-          <DateField label="To" name="to" defaultValue={to} />
+          <label className="flex flex-col gap-1 text-sm">
+            From
+            <input
+              type="date"
+              name="from"
+              defaultValue={from}
+              className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent dark:[&::-webkit-calendar-picker-indicator]:invert"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            To
+            <input
+              type="date"
+              name="to"
+              defaultValue={to}
+              className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent dark:[&::-webkit-calendar-picker-indicator]:invert"
+            />
+          </label>
           <label className="flex flex-col gap-1 text-sm">
             Colour
             <select
@@ -1077,6 +1106,7 @@ export default async function DashboardPage({
                   <th className="px-3 py-2">Type</th>
                   <th className="px-3 py-2">Size</th>
                   <th className="px-3 py-2">Category</th>
+                  <th className="px-3 py-2">Attributes</th>
                   <th className="px-3 py-2 text-right">Units</th>
                   <th className="px-3 py-2 text-right">Revenue</th>
                 </tr>
@@ -1094,6 +1124,9 @@ export default async function DashboardPage({
                     <td className="px-3 py-2">{v.variant_type ?? "-"}</td>
                     <td className="px-3 py-2">{v.size ?? "-"}</td>
                     <td className="px-3 py-2">{v.category_name ?? "-"}</td>
+                    <td className="px-3 py-2 text-xs text-zinc-500">
+                      {formatAttributes(v.variant_attributes)}
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {v.units.toLocaleString()}
                     </td>
@@ -1104,7 +1137,7 @@ export default async function DashboardPage({
                 ))}
                 {!topVariants.length && (
                   <tr>
-                    <td colSpan={9} className="px-3 py-6 text-center text-zinc-500">
+                    <td colSpan={10} className="px-3 py-6 text-center text-zinc-500">
                       No sales in this range yet.
                     </td>
                   </tr>
@@ -1115,8 +1148,8 @@ export default async function DashboardPage({
         )}
         {!hasVariantType && (
           <p className="mt-2 text-xs text-amber-700 dark:text-amber-500">
-            The Type column is empty until migration 0022 has been run and the
-            next Odoo sync has populated it.
+            The Type and Attributes columns are empty until migration 0022
+            has been run and the next Odoo sync has populated them.
           </p>
         )}
       </div>
@@ -1140,6 +1173,7 @@ export default async function DashboardPage({
                 <th className="px-3 py-2">Colour</th>
                 <th className="px-3 py-2">Type</th>
                 <th className="px-3 py-2">Size</th>
+                <th className="px-3 py-2">Attributes</th>
                 <th className="px-3 py-2 text-right">Qty</th>
                 <th className="px-3 py-2 text-right">Subtotal</th>
               </tr>
@@ -1169,6 +1203,9 @@ export default async function DashboardPage({
                   <td className="px-3 py-2">{line.products?.color ?? "-"}</td>
                   <td className="px-3 py-2">{line.products?.variant_type ?? "-"}</td>
                   <td className="px-3 py-2">{line.products?.size ?? "-"}</td>
+                  <td className="px-3 py-2 text-xs text-zinc-500">
+                    {formatAttributes(line.products?.variant_attributes ?? null)}
+                  </td>
                   <td className="px-3 py-2 text-right">{line.qty}</td>
                   <td className="px-3 py-2 text-right">
                     {currencyFormatter.format(Number(line.subtotal))}
@@ -1177,7 +1214,7 @@ export default async function DashboardPage({
               ))}
               {!lines.length && (
                 <tr>
-                  <td colSpan={11} className="px-3 py-6 text-center text-zinc-500">
+                  <td colSpan={12} className="px-3 py-6 text-center text-zinc-500">
                     No sales data for this filter yet.
                   </td>
                 </tr>
