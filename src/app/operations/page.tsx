@@ -1102,7 +1102,7 @@ export default async function DashboardPage({
                   <th className="px-3 py-2">#</th>
                   <th className="px-3 py-2">SKU</th>
                   <th className="px-3 py-2">Product</th>
-                  <th className="px-3 py-2">Colour</th>
+                  <th className="px-3 py-2">Variants</th>
                   <th className="px-3 py-2">Type</th>
                   <th className="px-3 py-2">Size</th>
                   <th className="px-3 py-2">Category</th>
@@ -1170,7 +1170,7 @@ export default async function DashboardPage({
                 <th className="px-3 py-2">SKU</th>
                 <th className="px-3 py-2">Product</th>
                 <th className="px-3 py-2">Category</th>
-                <th className="px-3 py-2">Colour</th>
+                <th className="px-3 py-2">Variants</th>
                 <th className="px-3 py-2">Type</th>
                 <th className="px-3 py-2">Size</th>
                 <th className="px-3 py-2">Attributes</th>
