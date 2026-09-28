@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { syncNowAction } from "./actions";
 import { BALI_TZ, formatRupiahCompact } from "@/lib/creative-brief/format";
 import { paletteCss, paletteVar } from "@/lib/viz/palette";
+import { SalesOverTimeChart } from "./sales-over-time-chart";
 
 export const dynamic = "force-dynamic";
 // Applies to this route's Server Actions too (e.g. the "Sync now" button) -
@@ -77,6 +78,59 @@ function niceStep(value: number): number {
   const normalized = value / magnitude;
   const step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
   return step * magnitude;
+}
+
+/** Percent change of current vs previous, or null when there's nothing to
+ * compare against (rollup unavailable). A previous value of exactly 0 has
+ * no defined percent change, so that's reported as null too rather than
+ * as a fake +Infinity% - the caller shows "new" for that case instead. */
+function growthPct(current: number, previous: number | null): number | null {
+  if (previous === null || previous === 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+type ChartPoint = { x: number; y: number } | null;
+
+/** SVG path across a series of points, starting a new subpath after every
+ * null (a day with no data) so gaps in the sync show as gaps in the line
+ * rather than a false dip to zero. */
+function linePath(points: ChartPoint[]): string {
+  let d = "";
+  let started = false;
+  for (const p of points) {
+    if (!p) {
+      started = false;
+      continue;
+    }
+    d += `${started ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)} `;
+    started = true;
+  }
+  return d.trim();
+}
+
+/** Fill under a line (same gap handling as linePath), one closed shape per
+ * unbroken run of at least two points - a single isolated point has no
+ * area to fill. */
+function areaPath(points: ChartPoint[], baseline: number): string {
+  let d = "";
+  let run: { x: number; y: number }[] = [];
+  const flush = () => {
+    if (run.length > 1) {
+      d += `M${run[0].x.toFixed(1)},${baseline} `;
+      for (const p of run) d += `L${p.x.toFixed(1)},${p.y.toFixed(1)} `;
+      d += `L${run[run.length - 1].x.toFixed(1)},${baseline} Z `;
+    }
+    run = [];
+  };
+  for (const p of points) {
+    if (!p) {
+      flush();
+      continue;
+    }
+    run.push(p);
+  }
+  flush();
+  return d.trim();
 }
 
 interface SearchParams {
@@ -156,6 +210,25 @@ function SectionHeading({
   );
 }
 
+function GrowthBadge({ pct, spanDays }: { pct: number | null; spanDays: number }) {
+  if (pct === null) return null;
+  const flat = Math.abs(pct) < 0.05;
+  return (
+    <div
+      className={`mt-1 text-xs ${
+        flat
+          ? "text-zinc-400"
+          : pct > 0
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-red-600 dark:text-red-400"
+      }`}
+    >
+      {flat ? "–" : pct > 0 ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}% vs
+      previous {spanDays}d
+    </div>
+  );
+}
+
 function RollupUnavailable({ message }: { message: string }) {
   return (
     <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
@@ -206,6 +279,18 @@ export default async function DashboardPage({
   const fromIso = `${from}T00:00:00${BALI_UTC_OFFSET}`;
   const toIso = `${addDays(to, 1)}T00:00:00${BALI_UTC_OFFSET}`;
 
+  // The comparison period: the same number of days, immediately before
+  // `from`. Not "same dates last year" - that would need a full year of
+  // synced Odoo history, which this app doesn't assume it has yet.
+  const spanDays = Math.max(
+    Math.round((utcMidnight(to) - utcMidnight(from)) / DAY_MS) + 1,
+    1,
+  );
+  const prevTo = addDays(from, -1);
+  const prevFrom = addDays(prevTo, -(spanDays - 1));
+  const prevFromIso = `${prevFrom}T00:00:00${BALI_UTC_OFFSET}`;
+  const prevToIso = `${addDays(prevTo, 1)}T00:00:00${BALI_UTC_OFFSET}`;
+
   const supabase = createAdminClient();
 
   const returnTo = new URLSearchParams();
@@ -225,36 +310,31 @@ export default async function DashboardPage({
     .limit(1);
   const hasVariantType = !variantTypeProbeError;
 
-  const rollupArgs = {
-    p_from: fromIso,
-    p_to: toIso,
+  const filterArgs = {
     p_store_ids: storeIds.length ? storeIds : null,
     p_colors: colors.length ? colors : null,
     p_sizes: sizes.length ? sizes : null,
     p_types: types.length ? types : null,
   };
+  const rollupArgs = { p_from: fromIso, p_to: toIso, ...filterArgs };
+  const prevRollupArgs = { p_from: prevFromIso, p_to: prevToIso, ...filterArgs };
 
   const [
     { data: stores },
     { data: colorRows },
     { data: sizeRows },
-    { data: typeRows },
     { data: lastSync },
     totalsResult,
     dailyResult,
     byStoreResult,
     topProductsResult,
     topVariantsResult,
+    prevTotalsResult,
+    prevDailyResult,
   ] = await Promise.all([
     supabase.from("stores").select("id, name").eq("active", true).order("name"),
     supabase.from("products").select("color").not("color", "is", null),
     supabase.from("products").select("size").not("size", "is", null),
-    hasVariantType
-      ? supabase
-          .from("products")
-          .select("variant_type")
-          .not("variant_type", "is", null)
-      : Promise.resolve({ data: [] as { variant_type: string }[] }),
     supabase
       .from("sync_runs")
       .select("status, started_at, finished_at, orders_synced, error_message")
@@ -276,6 +356,10 @@ export default async function DashboardPage({
         p_limit: TOP_VARIANTS_LIMIT,
       }),
     ),
+    // For the growth badges and the "previous period" line on the trend
+    // chart - same filters, the immediately preceding date range.
+    rollup<TotalsRow>(supabase.rpc("ops_sales_totals", prevRollupArgs)),
+    rollup<DailyRow>(supabase.rpc("ops_sales_daily", prevRollupArgs)),
   ]);
 
   const selectableStores = (stores ?? []).filter(
@@ -286,9 +370,6 @@ export default async function DashboardPage({
   ).sort();
   const availableSizes = Array.from(
     new Set((sizeRows ?? []).map((r) => r.size as string)),
-  ).sort();
-  const availableTypes = Array.from(
-    new Set((typeRows ?? []).map((r) => r.variant_type as string)),
   ).sort();
 
   const productColumns = [
@@ -361,32 +442,112 @@ export default async function DashboardPage({
   const totalOrders = totals ? Number(totals.order_count) : null;
   const totalLines = totals ? Number(totals.line_count) : lines.length;
 
-  // --- Daily sales bars -----------------------------------------------
+  const prevTotals = prevTotalsResult.rows[0];
+  // Only compare when both sides come from the real rollup - comparing a
+  // proper previous total against a capped current-period estimate (or
+  // vice versa) would be comparing two different things.
+  const canShowGrowth = Boolean(totals && prevTotals);
+  const revenueGrowth = canShowGrowth
+    ? growthPct(totalRevenue, Number(prevTotals!.revenue))
+    : null;
+  const unitsGrowth = canShowGrowth
+    ? growthPct(totalQty, Number(prevTotals!.units))
+    : null;
+  const ordersGrowth =
+    canShowGrowth && totalOrders !== null
+      ? growthPct(totalOrders, Number(prevTotals!.order_count))
+      : null;
+
+  // --- Sales over time: this period vs the previous one -----------------
   const daily = dailyResult.rows.map((d) => ({
     day: d.day,
     revenue: Number(d.revenue),
     units: Number(d.units),
     orders: Number(d.order_count),
   }));
-  const spanDays = Math.max(
-    Math.round((utcMidnight(to) - utcMidnight(from)) / DAY_MS) + 1,
-    1,
-  );
+  const prevDaily = prevDailyResult.rows.map((d) => ({
+    day: d.day,
+    revenue: Number(d.revenue),
+    units: Number(d.units),
+    orders: Number(d.order_count),
+  }));
+  // Only true once the rollup for the previous period actually succeeded -
+  // if it hasn't, the current period's chart still works, it just draws
+  // alone rather than pretending there's a comparison.
+  const hasComparison = !prevDailyResult.error;
+
   const positiveDays = daily.filter((d) => d.revenue > 0);
   const negativeDayCount = daily.length - positiveDays.length;
 
+  // Index-aligned by day offset from each period's start, not by calendar
+  // date - that's what lets "day 5 of this period" line up with "day 5 of
+  // the previous period" on the same x position even though the actual
+  // dates differ (and may cross a month boundary differently on each side).
+  // A day that netted zero/negative (refunds) or was never synced reads as
+  // a gap (null), same as the old bar chart's "no bar" days.
+  const currentByDate = new Map(daily.map((d) => [d.day, d]));
+  const previousByDate = new Map(prevDaily.map((d) => [d.day, d]));
+  const currentDaily = Array.from({ length: spanDays }, (_, i) => {
+    const row = currentByDate.get(addDays(from, i));
+    return row && row.revenue > 0 ? row : null;
+  });
+  const previousDaily = Array.from({ length: spanDays }, (_, i) => {
+    const row = previousByDate.get(addDays(prevFrom, i));
+    return hasComparison && row && row.revenue > 0 ? row : null;
+  });
+
   const plotW = CHART_W - PAD_L - PAD_R;
   const plotH = CHART_H - PAD_T - PAD_B;
-  const dayStep = niceStep(Math.max(...positiveDays.map((d) => d.revenue), 1) / 4);
+  const chartBaseline = PAD_T + plotH;
+  const allRevenues = [...currentDaily, ...previousDaily]
+    .filter((d): d is NonNullable<typeof d> => d !== null)
+    .map((d) => d.revenue);
+  const dayStep = niceStep(Math.max(...allRevenues, 1) / 4);
   const dayYMax = dayStep * 4;
-  const barSlot = plotW / spanDays;
-  const barWidth = Math.max(barSlot * 0.72, 1);
-  const barX = (day: string) =>
-    PAD_L +
-    (Math.round((utcMidnight(day) - utcMidnight(from)) / DAY_MS) + 0.5) * barSlot -
-    barWidth / 2;
-  const barY = (value: number) => PAD_T + plotH - (value / dayYMax) * plotH;
+  const daySlot = plotW / spanDays;
+  const chartX = (i: number) => PAD_L + (i + 0.5) * daySlot;
+  const chartY = (value: number) => PAD_T + plotH - (value / dayYMax) * plotH;
   const dayTicks = [0, dayStep, dayStep * 2, dayStep * 3, dayStep * 4];
+
+  const currentPoints = currentDaily.map((d, i) =>
+    d ? { x: chartX(i), y: chartY(d.revenue) } : null,
+  );
+  const previousPoints = previousDaily.map((d, i) =>
+    d ? { x: chartX(i), y: chartY(d.revenue) } : null,
+  );
+  const currentLineD = linePath(currentPoints);
+  const currentAreaD = areaPath(currentPoints, chartBaseline);
+  const previousLineD = linePath(previousPoints);
+  const previousAreaD = areaPath(previousPoints, chartBaseline);
+
+  const chartDays = Array.from({ length: spanDays }, (_, i) => {
+    const c = currentDaily[i];
+    const p = previousDaily[i];
+    return {
+      x: chartX(i),
+      currentY: c ? chartY(c.revenue) : null,
+      previousY: p ? chartY(p.revenue) : null,
+      currentLabel: dayLabelFormatter.format(
+        new Date(`${addDays(from, i)}T00:00:00Z`),
+      ),
+      previousLabel: dayLabelFormatter.format(
+        new Date(`${addDays(prevFrom, i)}T00:00:00Z`),
+      ),
+      currentValueLabel: c ? currencyFormatter.format(c.revenue) : "No sales",
+      previousValueLabel: hasComparison
+        ? p
+          ? currencyFormatter.format(p.revenue)
+          : "No sales"
+        : null,
+      currentUnits: c ? c.units : null,
+      currentOrders: c ? c.orders : null,
+      previousUnits: p ? p.units : null,
+      previousOrders: p ? p.orders : null,
+    };
+  });
+
+  const periodLabel = (day: string) =>
+    dayLabelFormatter.format(new Date(`${day}T00:00:00Z`));
   const xLabelEvery = Math.max(1, Math.ceil(spanDays / 7));
   const xLabels = Array.from({ length: spanDays }, (_, i) => addDays(from, i))
     .map((day, i) => ({ day, i }))
@@ -412,6 +573,7 @@ export default async function DashboardPage({
   }, []);
   const PIE_SCOPE = "ops-store-pie";
   const BAR_SCOPE = "ops-bar";
+  const TREND_SCOPE = "ops-trend";
   // Series colours are custom properties defined once on the page root, so
   // the dark-mode step can be swapped by a media query (an inline style
   // can't do that on its own).
@@ -419,7 +581,9 @@ export default async function DashboardPage({
     paletteCss(
       PIE_SCOPE,
       pieSlices.map((s) => s.key),
-    ) + paletteCss(BAR_SCOPE, ["bar"]);
+    ) +
+    paletteCss(BAR_SCOPE, ["bar"]) +
+    paletteCss(TREND_SCOPE, ["current", "previous"]);
   const conicStops = pieSlices
     .map(
       (s) =>
@@ -443,7 +607,7 @@ export default async function DashboardPage({
   }));
 
   return (
-    <div className={`mx-auto max-w-6xl px-6 py-10 ${PIE_SCOPE} ${BAR_SCOPE}`}>
+    <div className={`mx-auto max-w-6xl px-6 py-10 ${PIE_SCOPE} ${BAR_SCOPE} ${TREND_SCOPE}`}>
       <style dangerouslySetInnerHTML={{ __html: vizCss }} />
       <h1 className="text-2xl font-semibold tracking-tight">Sales Dashboard</h1>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
@@ -569,29 +733,6 @@ export default async function DashboardPage({
           </p>
         </fieldset>
 
-        {hasVariantType && availableTypes.length > 0 && (
-          <fieldset className="mt-4">
-            <legend className="text-sm">Type</legend>
-            <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-2">
-              {availableTypes.map((t) => (
-                <label
-                  key={t}
-                  className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300"
-                >
-                  <input
-                    type="checkbox"
-                    name="type"
-                    value={t}
-                    defaultChecked={types.includes(t)}
-                    className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
-                  />
-                  {t}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-        )}
-
         <button
           type="submit"
           className="mt-4 rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
@@ -606,16 +747,19 @@ export default async function DashboardPage({
           <div className="text-xl font-semibold">
             {currencyFormatter.format(totalRevenue)}
           </div>
+          <GrowthBadge pct={revenueGrowth} spanDays={spanDays} />
         </div>
         <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
           <div className="text-xs text-zinc-500">Units sold</div>
           <div className="text-xl font-semibold">{totalQty.toLocaleString()}</div>
+          <GrowthBadge pct={unitsGrowth} spanDays={spanDays} />
         </div>
         <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
           <div className="text-xs text-zinc-500">Orders</div>
           <div className="text-xl font-semibold">
             {totalOrders !== null ? totalOrders.toLocaleString() : "-"}
           </div>
+          <GrowthBadge pct={ordersGrowth} spanDays={spanDays} />
         </div>
         <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
           <div className="text-xs text-zinc-500">Line items</div>
@@ -637,7 +781,7 @@ export default async function DashboardPage({
       <div className="mt-10">
         <SectionHeading
           title="Sales over time"
-          subtitle="Revenue per trading day (Bali time), across the whole filtered range."
+          subtitle="Revenue per trading day (Bali time), against the same number of days immediately before this range."
         />
         {dailyResult.error ? (
           <RollupUnavailable message={dailyResult.error} />
@@ -647,26 +791,58 @@ export default async function DashboardPage({
           </p>
         ) : (
           <>
+            <div className="mt-3 flex flex-wrap items-center gap-6 text-xs">
+              <div className="flex items-center gap-2">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: paletteVar("current") }}
+                />
+                <div>
+                  <div className="font-medium text-zinc-700 dark:text-zinc-300">
+                    This period
+                  </div>
+                  <div className="text-zinc-400">
+                    {periodLabel(from)} – {periodLabel(to)}
+                  </div>
+                </div>
+              </div>
+              {hasComparison && (
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: paletteVar("previous") }}
+                  />
+                  <div>
+                    <div className="font-medium text-zinc-700 dark:text-zinc-300">
+                      Previous period
+                    </div>
+                    <div className="text-zinc-400">
+                      {periodLabel(prevFrom)} – {periodLabel(prevTo)}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
             <svg
               viewBox={`0 0 ${CHART_W} ${CHART_H}`}
               className="mt-3 h-auto w-full"
               role="img"
-              aria-label="Revenue per day"
+              aria-label="Revenue per day, this period vs the previous one"
             >
               {dayTicks.map((t) => (
                 <g key={t}>
                   <line
                     x1={PAD_L}
                     x2={CHART_W - PAD_R}
-                    y1={barY(t)}
-                    y2={barY(t)}
+                    y1={chartY(t)}
+                    y2={chartY(t)}
                     stroke="currentColor"
                     className="text-zinc-200 dark:text-zinc-800"
                     strokeWidth={1}
                   />
                   <text
                     x={PAD_L - 6}
-                    y={barY(t) + 3}
+                    y={chartY(t) + 3}
                     textAnchor="end"
                     className="fill-zinc-400 text-[9px]"
                   >
@@ -674,26 +850,70 @@ export default async function DashboardPage({
                   </text>
                 </g>
               ))}
-              {positiveDays.map((d) => (
-                <rect
-                  key={d.day}
-                  x={barX(d.day)}
-                  y={barY(d.revenue)}
-                  width={barWidth}
-                  height={Math.max(PAD_T + plotH - barY(d.revenue), 0)}
-                  className="fill-zinc-700 dark:fill-zinc-300"
-                >
-                  <title>
-                    {dayLabelFormatter.format(new Date(`${d.day}T00:00:00Z`))}:{" "}
-                    {currencyFormatter.format(d.revenue)}, {d.units} units,{" "}
-                    {d.orders} orders
-                  </title>
-                </rect>
-              ))}
+              {hasComparison && (
+                <>
+                  <path
+                    d={previousAreaD}
+                    style={{ fill: paletteVar("previous") }}
+                    className="opacity-10"
+                  />
+                  <path
+                    d={previousLineD}
+                    fill="none"
+                    style={{ stroke: paletteVar("previous") }}
+                    strokeWidth={1.5}
+                  />
+                  {previousPoints.map(
+                    (p, i) =>
+                      p && (
+                        <circle
+                          key={i}
+                          cx={p.x}
+                          cy={p.y}
+                          r={2}
+                          style={{ fill: paletteVar("previous") }}
+                        />
+                      ),
+                  )}
+                </>
+              )}
+              <path
+                d={currentAreaD}
+                style={{ fill: paletteVar("current") }}
+                className="opacity-10"
+              />
+              <path
+                d={currentLineD}
+                fill="none"
+                style={{ stroke: paletteVar("current") }}
+                strokeWidth={2}
+              />
+              {currentPoints.map(
+                (p, i) =>
+                  p && (
+                    <circle
+                      key={i}
+                      cx={p.x}
+                      cy={p.y}
+                      r={2.5}
+                      style={{ fill: paletteVar("current") }}
+                    />
+                  ),
+              )}
+              <SalesOverTimeChart
+                days={chartDays}
+                daySlot={daySlot}
+                chartLeft={PAD_L}
+                chartRight={CHART_W - PAD_R}
+                chartTop={PAD_T}
+                chartBottom={chartBaseline}
+                currentColor={paletteVar("current")}
+                previousColor={paletteVar("previous")}
+              />
               {xLabels.map(({ day, i }) => (
                 <text
                   key={day}
-                  x={PAD_L + (i + 0.5) * barSlot}
+                  x={chartX(i)}
                   y={CHART_H - PAD_B + 15}
                   textAnchor="middle"
                   className="fill-zinc-400 text-[9px]"
@@ -703,11 +923,13 @@ export default async function DashboardPage({
               ))}
             </svg>
             <p className="mt-1 text-[10px] text-zinc-400">
-              A day with no bar had no synced sales. The Odoo sync only covers
-              the days it has been run for, so a gap isn&apos;t necessarily a
-              zero-sales day.
+              A gap in a line means no synced sales that day (or the day
+              netted zero or less in refunds) - it isn&apos;t necessarily a
+              zero-sales day, just one the Odoo sync hasn&apos;t covered.
               {negativeDayCount > 0 &&
-                ` ${negativeDayCount} day(s) netted zero or less (refunds) and aren't drawn - see the table view.`}
+                ` ${negativeDayCount} day(s) in this period netted zero or less - see the table view.`}
+              {!hasComparison &&
+                ` Comparison to the previous period isn't available (${prevDailyResult.error}).`}
             </p>
             <details className="mt-2">
               <summary className="cursor-pointer text-xs text-zinc-500 hover:underline">
