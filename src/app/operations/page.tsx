@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { syncNowAction } from "./actions";
 import { BALI_TZ, formatRupiahCompact } from "@/lib/creative-brief/format";
 import { paletteCss, paletteVar } from "@/lib/viz/palette";
+import { SalesOverTimeBars } from "./sales-over-time-bars";
 
 export const dynamic = "force-dynamic";
 // Applies to this route's Server Actions too (e.g. the "Sync now" button) -
@@ -377,6 +378,17 @@ export default async function DashboardPage({
     barWidth / 2;
   const barY = (value: number) => PAD_T + plotH - (value / dayYMax) * plotH;
   const dayTicks = [0, dayStep, dayStep * 2, dayStep * 3, dayStep * 4];
+  const bars = positiveDays.map((d) => ({
+    day: d.day,
+    x: barX(d.day),
+    y: barY(d.revenue),
+    width: barWidth,
+    height: Math.max(PAD_T + plotH - barY(d.revenue), 0),
+    dayLabel: dayLabelFormatter.format(new Date(`${d.day}T00:00:00Z`)),
+    revenueLabel: currencyFormatter.format(d.revenue),
+    units: d.units,
+    orders: d.orders,
+  }));
   const xLabelEvery = Math.max(1, Math.ceil(spanDays / 7));
   const xLabels = Array.from({ length: spanDays }, (_, i) => addDays(from, i))
     .map((day, i) => ({ day, i }))
@@ -641,22 +653,12 @@ export default async function DashboardPage({
                   </text>
                 </g>
               ))}
-              {positiveDays.map((d) => (
-                <rect
-                  key={d.day}
-                  x={barX(d.day)}
-                  y={barY(d.revenue)}
-                  width={barWidth}
-                  height={Math.max(PAD_T + plotH - barY(d.revenue), 0)}
-                  className="fill-zinc-700 dark:fill-zinc-300"
-                >
-                  <title>
-                    {dayLabelFormatter.format(new Date(`${d.day}T00:00:00Z`))}:{" "}
-                    {currencyFormatter.format(d.revenue)}, {d.units} units,{" "}
-                    {d.orders} orders
-                  </title>
-                </rect>
-              ))}
+              <SalesOverTimeBars
+                bars={bars}
+                chartLeft={PAD_L}
+                chartRight={CHART_W - PAD_R}
+                chartTop={PAD_T}
+              />
               {xLabels.map(({ day, i }) => (
                 <text
                   key={day}
