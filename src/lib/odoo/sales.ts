@@ -67,12 +67,24 @@ function attributeNameSet(envVar: string | undefined, defaults: string[]): Set<s
 // instance may still name the attribute something this list doesn't
 // cover, which is what ODOO_COLOR_ATTRIBUTE_NAMES / ODOO_SIZE_ATTRIBUTE_NAMES
 // is for.
+//
+// This catalogue in particular doesn't use one consistent attribute name
+// for "colour" across product categories - confirmed against the real
+// Odoo instance: apparel uses "Color AS", some lines use "Type AS", and
+// others (e.g. anything sold by flavour rather than colour) use
+// "Flavour". All three play the same role - the primary variant
+// dimension - so all three map onto `color` here, not just literal
+// colour names.
 const COLOR_ATTRIBUTE_NAMES = attributeNameSet(process.env.ODOO_COLOR_ATTRIBUTE_NAMES, [
   "color",
   "colour",
   "colors",
   "colours",
   "warna",
+  "color as",
+  "type as",
+  "flavour",
+  "flavor",
 ]);
 const SIZE_ATTRIBUTE_NAMES = attributeNameSet(process.env.ODOO_SIZE_ATTRIBUTE_NAMES, [
   "size",
