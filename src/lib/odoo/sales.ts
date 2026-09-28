@@ -44,11 +44,34 @@ interface AttributeValue {
   attribute_id: [number, string];
 }
 
+/**
+ * Parses a comma-separated env var into a lowercased name set, falling
+ * back to `defaults` when the var is unset - so an instance whose Odoo
+ * attributes aren't named "Color"/"Size" in English (a different
+ * language, a house term like "Hue" or "Fit Size") can point this at its
+ * own attribute names without a code change: set ODOO_COLOR_ATTRIBUTE_NAMES
+ * / ODOO_SIZE_ATTRIBUTE_NAMES (see README).
+ */
+function attributeNameSet(envVar: string | undefined, defaults: string[]): Set<string> {
+  const names = envVar
+    ? envVar.split(",").map((n) => n.trim().toLowerCase()).filter(Boolean)
+    : defaults;
+  return new Set(names.length ? names : defaults);
+}
+
 // Attribute names (lowercased) that map onto the dedicated color/size
 // columns. Everything else on a variant is a further dimension we keep
 // verbatim rather than discard - see `variantType` below.
-const COLOR_ATTRIBUTE_NAMES = new Set(["color", "colour", "colors", "colours"]);
-const SIZE_ATTRIBUTE_NAMES = new Set(["size", "sizes"]);
+const COLOR_ATTRIBUTE_NAMES = attributeNameSet(process.env.ODOO_COLOR_ATTRIBUTE_NAMES, [
+  "color",
+  "colour",
+  "colors",
+  "colours",
+]);
+const SIZE_ATTRIBUTE_NAMES = attributeNameSet(process.env.ODOO_SIZE_ATTRIBUTE_NAMES, [
+  "size",
+  "sizes",
+]);
 
 /**
  * Fetches product variants and resolves every one of their attribute values.

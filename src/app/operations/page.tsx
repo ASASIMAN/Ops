@@ -3,6 +3,7 @@ import { syncNowAction } from "./actions";
 import { BALI_TZ, formatRupiahCompact } from "@/lib/creative-brief/format";
 import { paletteCss, paletteVar } from "@/lib/viz/palette";
 import { SalesOverTimeChart } from "./sales-over-time-chart";
+import { DateField } from "./date-field";
 
 export const dynamic = "force-dynamic";
 // Applies to this route's Server Actions too (e.g. the "Sync now" button) -
@@ -140,6 +141,7 @@ interface SearchParams {
   color?: string | string[];
   size?: string | string[];
   type?: string | string[];
+  product?: string;
 }
 
 interface DailyRow {
@@ -273,6 +275,7 @@ export default async function DashboardPage({
   const colors = toArray(params.color);
   const sizes = toArray(params.size);
   const types = toArray(params.type);
+  const productName = (params.product ?? "").trim();
 
   // Half-open [from 00:00 WITA, day-after-to 00:00 WITA) so the last day is
   // included whole rather than stopping a second short of midnight.
@@ -300,6 +303,7 @@ export default async function DashboardPage({
   for (const v of toArray(params.color)) returnTo.append("color", v);
   for (const v of toArray(params.size)) returnTo.append("size", v);
   for (const v of toArray(params.type)) returnTo.append("type", v);
+  if (params.product) returnTo.set("product", params.product);
   const returnToUrl = `/operations${returnTo.toString() ? `?${returnTo}` : ""}`;
 
   // products.variant_type only exists once migration 0022 has been run.
@@ -315,6 +319,7 @@ export default async function DashboardPage({
     p_colors: colors.length ? colors : null,
     p_sizes: sizes.length ? sizes : null,
     p_types: types.length ? types : null,
+    p_product_name: productName || null,
   };
   const rollupArgs = { p_from: fromIso, p_to: toIso, ...filterArgs };
   const prevRollupArgs = { p_from: prevFromIso, p_to: prevToIso, ...filterArgs };
@@ -403,6 +408,7 @@ export default async function DashboardPage({
   if (sizes.length) query = query.in("products.size", sizes);
   if (types.length && hasVariantType)
     query = query.in("products.variant_type", types);
+  if (productName) query = query.ilike("products.name", `%${productName}%`);
 
   const { data: rows, error } = await query;
 
@@ -655,25 +661,20 @@ export default async function DashboardPage({
         method="get"
         className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
       >
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <label className="flex flex-col gap-1 text-sm">
-            From
-            <input
-              type="date"
-              name="from"
-              defaultValue={from}
-              className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            To
-            <input
-              type="date"
-              name="to"
-              defaultValue={to}
-              className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent"
-            />
-          </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Product name
+          <input
+            type="text"
+            name="product"
+            defaultValue={productName}
+            placeholder="Search by product name..."
+            className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent"
+          />
+        </label>
+
+        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <DateField label="From" name="from" defaultValue={from} />
+          <DateField label="To" name="to" defaultValue={to} />
           <label className="flex flex-col gap-1 text-sm">
             Colour
             <select

@@ -32,6 +32,8 @@ deployed environments.
 | `ODOO_DB` | Your Odoo database name |
 | `ODOO_USERNAME` | A user with read access to POS/product data — ideally a dedicated read-only user |
 | `ODOO_API_KEY` | Generate under that user's profile → Account Security → New API Key |
+| `ODOO_COLOR_ATTRIBUTE_NAMES` | Optional, comma-separated. Which Odoo `product.attribute` names sync into `products.color` (case-insensitive). Defaults to `color,colour,colors,colours` - set this if your Odoo instance names that attribute something else (a different language, a house term), otherwise the Colour filter on `/operations` stays empty. |
+| `ODOO_SIZE_ATTRIBUTE_NAMES` | Optional, comma-separated. Same idea for `products.size`. Defaults to `size,sizes`. |
 | `CRON_SECRET` | Any random string. Authorizes calls to `/api/sync/odoo` — Vercel sends this automatically on its own scheduled cron requests once the var is set. |
 | `SETUP_SECRET` | Any random string. Gates the one-time `/setup` page that creates the first admin login. |
 
