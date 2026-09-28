@@ -61,17 +61,34 @@ function attributeNameSet(envVar: string | undefined, defaults: string[]): Set<s
 
 // Attribute names (lowercased) that map onto the dedicated color/size
 // columns. Everything else on a variant is a further dimension we keep
-// verbatim rather than discard - see `variantType` below.
+// verbatim rather than discard - see `variantType` below. Includes the
+// Indonesian terms alongside the English ones since this catalogue's
+// stores (Canggu, Nusa Dua, Pererenan, Ubud) are all in Bali - a real
+// instance may still name the attribute something this list doesn't
+// cover, which is what ODOO_COLOR_ATTRIBUTE_NAMES / ODOO_SIZE_ATTRIBUTE_NAMES
+// is for.
 const COLOR_ATTRIBUTE_NAMES = attributeNameSet(process.env.ODOO_COLOR_ATTRIBUTE_NAMES, [
   "color",
   "colour",
   "colors",
   "colours",
+  "warna",
 ]);
 const SIZE_ATTRIBUTE_NAMES = attributeNameSet(process.env.ODOO_SIZE_ATTRIBUTE_NAMES, [
   "size",
   "sizes",
+  "ukuran",
 ]);
+
+// Falls back to recognizing a *value* that looks like a size (S/M/L,
+// XS-XXXL, or a number with an optional letter suffix like "32L") when no
+// attribute on the variant matched SIZE_ATTRIBUTE_NAMES by name. Sizes are
+// a small, well-known vocabulary, so this is safe to guess from the value
+// alone - colour is not (this catalogue names colours things like
+// "Hearthstone" or "English Breakfast Tea", so there's no reliable value
+// shape to match against; a colour attribute named something this list
+// doesn't cover has to be fixed via ODOO_COLOR_ATTRIBUTE_NAMES instead).
+const SIZE_VALUE_PATTERN = /^(xxs|xs|s|m|l|ll|xl|xxl|xxxl|\d{1,3}[a-z]{0,2})$/i;
 
 /**
  * Fetches product variants and resolves every one of their attribute values.
@@ -139,6 +156,14 @@ export async function fetchProducts() {
       } else {
         otherValues.push(value.name);
       }
+    }
+
+    // No attribute matched SIZE_ATTRIBUTE_NAMES by name - see if one of
+    // the leftover values matches a size by shape instead (first match
+    // wins; there's normally at most one on a variant).
+    if (!size) {
+      const i = otherValues.findIndex((v) => SIZE_VALUE_PATTERN.test(v.trim()));
+      if (i !== -1) size = otherValues.splice(i, 1)[0];
     }
 
     return {
