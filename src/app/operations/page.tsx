@@ -684,15 +684,32 @@ export default async function DashboardPage({
         )}
         <form action={syncNowAction} className="ml-auto flex items-center gap-2">
           <input type="hidden" name="returnTo" value={returnToUrl} />
-          <input type="hidden" name="days" value="7" />
+          <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+            Days back
+            <input
+              type="number"
+              name="days"
+              defaultValue={7}
+              min={1}
+              max={90}
+              className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-transparent"
+            />
+          </label>
           <button
             type="submit"
             className="rounded border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
           >
-            Sync now (last 7 days)
+            Sync now
           </button>
         </form>
       </div>
+      <p className="mt-1.5 text-[11px] text-zinc-500">
+        The automatic daily sync only covers the last 2 days each run - if
+        it ever misses a few days in a row (a deploy, Odoo downtime), those
+        days stay a gap in the chart/table below until backfilled. If you
+        spot a gap, raise &quot;Days back&quot; enough to cover it (back to
+        the last date you know was synced) and click Sync now.
+      </p>
 
       <form
         method="get"

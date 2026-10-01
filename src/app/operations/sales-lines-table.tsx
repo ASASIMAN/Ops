@@ -3,11 +3,11 @@
 import { useMemo, useState } from "react";
 
 /**
- * The Sales lines table, made sortable. The server already fetches and
- * formats every row (capped at ROW_LIMIT, same as before) - this just
- * owns which column/direction the already-rendered rows are displayed in,
- * so no new query or round-trip is needed to sort a table that's already
- * entirely on the page.
+ * The Sales lines table, made sortable and paginated. The server already
+ * fetches and formats every row (capped at ROW_LIMIT, same as before) -
+ * this just owns which column/direction they're sorted by and which page
+ * of PAGE_SIZE is shown, so no new query or round-trip is needed for
+ * either on a table that's already entirely on the page.
  */
 
 export interface SalesLineRow {
@@ -80,10 +80,16 @@ function compare(a: string | number, b: string | number): number {
   });
 }
 
+const PAGE_SIZE = 100;
+
 export function SalesLinesTable({ rows }: { rows: SalesLineRow[] }) {
   // null = the order the server sent (most recent first) - clicking a
   // header always starts at ascending, same as most spreadsheet UIs.
-  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" } | null>(null);
+  const [sort, setSort] = useState<{
+    key: SortKey;
+    dir: "asc" | "desc";
+  } | null>(null);
+  const [page, setPage] = useState(1);
 
   const sortedRows = useMemo(() => {
     if (!sort) return rows;
@@ -92,61 +98,116 @@ export function SalesLinesTable({ rows }: { rows: SalesLineRow[] }) {
     return sort.dir === "desc" ? sorted.reverse() : sorted;
   }, [rows, sort]);
 
+  const pageCount = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
+  // Clamp rather than reset via effect - covers both a resort (handled
+  // explicitly below) and the row count simply shrinking (a narrower
+  // filter) without an extra render.
+  const currentPage = Math.min(page, pageCount);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pageRows = sortedRows.slice(pageStart, pageStart + PAGE_SIZE);
+
   const toggleSort = (key: SortKey) => {
     setSort((current) =>
       current?.key === key
         ? { key, dir: current.dir === "asc" ? "desc" : "asc" }
         : { key, dir: "asc" },
     );
+    setPage(1);
   };
 
   return (
-    <table className="w-full text-sm">
-      <thead className="bg-zinc-50 text-left dark:bg-zinc-900">
-        <tr>
-          {COLUMNS.map((col) => (
-            <th key={col.key} className="px-3 py-2">
-              <button
-                type="button"
-                onClick={() => toggleSort(col.key)}
-                className={`flex w-full items-center gap-1 ${
-                  col.align === "right" ? "justify-end" : "justify-start"
-                } hover:text-zinc-900 dark:hover:text-zinc-50`}
-              >
-                {col.label}
-                <span className="text-[10px] text-zinc-400">
-                  {sort?.key === col.key ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}
-                </span>
-              </button>
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {sortedRows.map((row) => (
-          <tr key={row.id} className="border-t border-zinc-100 dark:border-zinc-800">
-            <td className="px-3 py-2 whitespace-nowrap">{row.dateLabel}</td>
-            <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{row.orderRef}</td>
-            <td className="px-3 py-2">{row.store}</td>
-            <td className="px-3 py-2 font-mono text-xs">{row.sku}</td>
-            <td className="px-3 py-2">{row.product}</td>
-            <td className="px-3 py-2">{row.category}</td>
-            <td className="px-3 py-2">{row.variant}</td>
-            <td className="px-3 py-2">{row.type}</td>
-            <td className="px-3 py-2">{row.size}</td>
-            <td className="px-3 py-2 text-xs text-zinc-500">{row.attributes}</td>
-            <td className="px-3 py-2 text-right">{row.qty}</td>
-            <td className="px-3 py-2 text-right">{row.subtotalLabel}</td>
-          </tr>
-        ))}
-        {!sortedRows.length && (
+    <>
+      <table className="w-full text-sm">
+        <thead className="bg-zinc-50 text-left dark:bg-zinc-900">
           <tr>
-            <td colSpan={COLUMNS.length} className="px-3 py-6 text-center text-zinc-500">
-              No sales data for this filter yet.
-            </td>
+            {COLUMNS.map((col) => (
+              <th key={col.key} className="px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => toggleSort(col.key)}
+                  className={`flex w-full items-center gap-1 ${
+                    col.align === "right" ? "justify-end" : "justify-start"
+                  } hover:text-zinc-900 dark:hover:text-zinc-50`}
+                >
+                  {col.label}
+                  <span className="text-[10px] text-zinc-400">
+                    {sort?.key === col.key
+                      ? sort.dir === "asc"
+                        ? "▲"
+                        : "▼"
+                      : "↕"}
+                  </span>
+                </button>
+              </th>
+            ))}
           </tr>
-        )}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {pageRows.map((row) => (
+            <tr
+              key={row.id}
+              className="border-t border-zinc-100 dark:border-zinc-800"
+            >
+              <td className="px-3 py-2 whitespace-nowrap">{row.dateLabel}</td>
+              <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
+                {row.orderRef}
+              </td>
+              <td className="px-3 py-2">{row.store}</td>
+              <td className="px-3 py-2 font-mono text-xs">{row.sku}</td>
+              <td className="px-3 py-2">{row.product}</td>
+              <td className="px-3 py-2">{row.category}</td>
+              <td className="px-3 py-2">{row.variant}</td>
+              <td className="px-3 py-2">{row.type}</td>
+              <td className="px-3 py-2">{row.size}</td>
+              <td className="px-3 py-2 text-xs text-zinc-500">
+                {row.attributes}
+              </td>
+              <td className="px-3 py-2 text-right">{row.qty}</td>
+              <td className="px-3 py-2 text-right">{row.subtotalLabel}</td>
+            </tr>
+          ))}
+          {!sortedRows.length && (
+            <tr>
+              <td
+                colSpan={COLUMNS.length}
+                className="px-3 py-6 text-center text-zinc-500"
+              >
+                No sales data for this filter yet.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      {pageCount > 1 && (
+        <div className="flex items-center justify-between gap-3 border-t border-zinc-200 px-3 py-2 text-xs text-zinc-500 dark:border-zinc-800">
+          <span>
+            Showing {pageStart + 1}-
+            {Math.min(pageStart + PAGE_SIZE, sortedRows.length)} of{" "}
+            {sortedRows.length.toLocaleString()}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="rounded border border-zinc-300 px-2 py-1 disabled:opacity-40 dark:border-zinc-700"
+            >
+              Previous
+            </button>
+            <span>
+              Page {currentPage} of {pageCount}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              disabled={currentPage === pageCount}
+              className="rounded border border-zinc-300 px-2 py-1 disabled:opacity-40 dark:border-zinc-700"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
