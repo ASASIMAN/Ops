@@ -3,6 +3,7 @@ import { syncNowAction } from "./actions";
 import { BALI_TZ, formatRupiahCompact } from "@/lib/creative-brief/format";
 import { paletteCss, paletteVar } from "@/lib/viz/palette";
 import { SalesOverTimeChart } from "./sales-over-time-chart";
+import { SalesLinesTable, type SalesLineRow } from "./sales-lines-table";
 
 export const dynamic = "force-dynamic";
 // Applies to this route's Server Actions too (e.g. the "Sync now" button) -
@@ -450,6 +451,25 @@ export default async function DashboardPage({
   };
 
   const lines = (rows ?? []) as unknown as Row[];
+  const salesLineRows: SalesLineRow[] = lines.map((line) => ({
+    id: line.id,
+    dateMs: line.orders?.order_date ? new Date(line.orders.order_date).getTime() : 0,
+    dateLabel: line.orders?.order_date
+      ? orderDateFormatter.format(new Date(line.orders.order_date))
+      : "-",
+    orderRef: line.orders?.pos_reference ?? "-",
+    store: line.orders?.stores?.name ?? "-",
+    sku: line.products?.sku ?? "-",
+    product: line.products?.name ?? "-",
+    category: line.products?.product_categories?.name ?? "-",
+    variant: line.products?.color ?? "-",
+    type: line.products?.variant_type ?? "-",
+    size: line.products?.size ?? "-",
+    attributes: formatAttributes(line.products?.variant_attributes ?? null),
+    qty: Number(line.qty),
+    subtotal: Number(line.subtotal),
+    subtotalLabel: currencyFormatter.format(Number(line.subtotal)),
+  }));
 
   const totals = totalsResult.rows[0];
   // Fall back to the capped rows only if the rollup isn't available, and
@@ -1165,66 +1185,7 @@ export default async function DashboardPage({
           subtitle={`Most recent first, up to ${ROW_LIMIT} rows.`}
         />
         <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-          <table className="w-full text-sm">
-            <thead className="bg-zinc-50 text-left dark:bg-zinc-900">
-              <tr>
-                <th className="px-3 py-2">Date</th>
-                <th className="px-3 py-2">Order Reference</th>
-                <th className="px-3 py-2">Store</th>
-                <th className="px-3 py-2">SKU</th>
-                <th className="px-3 py-2">Product</th>
-                <th className="px-3 py-2">Category</th>
-                <th className="px-3 py-2">Variants</th>
-                <th className="px-3 py-2">Type</th>
-                <th className="px-3 py-2">Size</th>
-                <th className="px-3 py-2">Attributes</th>
-                <th className="px-3 py-2 text-right">Qty</th>
-                <th className="px-3 py-2 text-right">Subtotal</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((line) => (
-                <tr
-                  key={line.id}
-                  className="border-t border-zinc-100 dark:border-zinc-800"
-                >
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    {line.orders?.order_date
-                      ? orderDateFormatter.format(new Date(line.orders.order_date))
-                      : "-"}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
-                    {line.orders?.pos_reference ?? "-"}
-                  </td>
-                  <td className="px-3 py-2">{line.orders?.stores?.name ?? "-"}</td>
-                  <td className="px-3 py-2 font-mono text-xs">
-                    {line.products?.sku ?? "-"}
-                  </td>
-                  <td className="px-3 py-2">{line.products?.name ?? "-"}</td>
-                  <td className="px-3 py-2">
-                    {line.products?.product_categories?.name ?? "-"}
-                  </td>
-                  <td className="px-3 py-2">{line.products?.color ?? "-"}</td>
-                  <td className="px-3 py-2">{line.products?.variant_type ?? "-"}</td>
-                  <td className="px-3 py-2">{line.products?.size ?? "-"}</td>
-                  <td className="px-3 py-2 text-xs text-zinc-500">
-                    {formatAttributes(line.products?.variant_attributes ?? null)}
-                  </td>
-                  <td className="px-3 py-2 text-right">{line.qty}</td>
-                  <td className="px-3 py-2 text-right">
-                    {currencyFormatter.format(Number(line.subtotal))}
-                  </td>
-                </tr>
-              ))}
-              {!lines.length && (
-                <tr>
-                  <td colSpan={12} className="px-3 py-6 text-center text-zinc-500">
-                    No sales data for this filter yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <SalesLinesTable rows={salesLineRows} />
         </div>
 
         {lines.length === ROW_LIMIT && (
