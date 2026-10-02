@@ -4,6 +4,7 @@ import { BALI_TZ, formatRupiahCompact } from "@/lib/creative-brief/format";
 import { paletteCss, paletteVar } from "@/lib/viz/palette";
 import { SalesOverTimeChart } from "./sales-over-time-chart";
 import { SalesLinesTable, type SalesLineRow } from "./sales-lines-table";
+import { FilterFields, type ProductFamily } from "./filter-fields";
 
 export const dynamic = "force-dynamic";
 // Applies to this route's Server Actions too (e.g. the "Sync now" button) -
@@ -243,6 +244,37 @@ function GrowthBadge({ pct, spanDays }: { pct: number | null; spanDays: number }
   );
 }
 
+type ProductFacetRow = {
+  name: string | null;
+  color: string | null;
+  size: string | null;
+};
+
+/**
+ * Every product's name/colour/size, for the filter dropdowns. Paged because
+ * PostgREST caps a single response at 1000 rows - the old
+ * `select("color")` per column silently stopped at 1000 *variants*, so a
+ * colour or size that only appeared further down the table never showed up
+ * as an option.
+ */
+async function fetchProductFacets(
+  supabase: ReturnType<typeof createAdminClient>,
+): Promise<ProductFacetRow[]> {
+  const PAGE = 1000;
+  const rows: ProductFacetRow[] = [];
+  for (let offset = 0; offset < 50 * PAGE; offset += PAGE) {
+    const { data, error } = await supabase
+      .from("products")
+      .select("name, color, size")
+      .order("id")
+      .range(offset, offset + PAGE - 1);
+    if (error || !data) break;
+    rows.push(...(data as ProductFacetRow[]));
+    if (data.length < PAGE) break;
+  }
+  return rows;
+}
+
 function RollupUnavailable({ message }: { message: string }) {
   return (
     <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
@@ -342,8 +374,7 @@ export default async function DashboardPage({
 
   const [
     { data: stores },
-    { data: colorRows },
-    { data: sizeRows },
+    productFacetRows,
     { data: lastSync },
     totalsResult,
     dailyResult,
@@ -354,8 +385,7 @@ export default async function DashboardPage({
     prevDailyResult,
   ] = await Promise.all([
     supabase.from("stores").select("id, name").eq("active", true).order("name"),
-    supabase.from("products").select("color").not("color", "is", null),
-    supabase.from("products").select("size").not("size", "is", null),
+    fetchProductFacets(supabase),
     supabase
       .from("sync_runs")
       .select("status, started_at, finished_at, orders_synced, error_message")
@@ -386,12 +416,26 @@ export default async function DashboardPage({
   const selectableStores = (stores ?? []).filter(
     (s) => !HIDDEN_STORE_NAMES.has(s.name.trim().toLowerCase()),
   );
-  const availableColors = Array.from(
-    new Set((colorRows ?? []).map((r) => r.color as string)),
-  ).sort();
-  const availableSizes = Array.from(
-    new Set((sizeRows ?? []).map((r) => r.size as string)),
-  ).sort();
+  // One entry per product family (Odoo product template - products.name is
+  // the template name, shared by all of its colour/size variants), with the
+  // colours and sizes that family actually comes in. Loyalty "Redeem ..."
+  // lines aren't merchandise, same exclusion as the Top products tables.
+  const familyMap = new Map<string, { colors: Set<string>; sizes: Set<string> }>();
+  for (const r of productFacetRows) {
+    if (!r.name || /^redeem/i.test(r.name)) continue;
+    let entry = familyMap.get(r.name);
+    if (!entry) {
+      entry = { colors: new Set(), sizes: new Set() };
+      familyMap.set(r.name, entry);
+    }
+    if (r.color) entry.colors.add(r.color);
+    if (r.size) entry.sizes.add(r.size);
+  }
+  const productFamilies: ProductFamily[] = Array.from(familyMap, ([name, f]) => ({
+    name,
+    colors: Array.from(f.colors).sort(),
+    sizes: Array.from(f.sizes).sort(),
+  })).sort((a, b) => a.name.localeCompare(b.name));
 
   const productColumns = [
     "name",
@@ -425,7 +469,7 @@ export default async function DashboardPage({
   if (sizes.length) query = query.in("products.size", sizes);
   if (types.length && hasVariantType)
     query = query.in("products.variant_type", types);
-  if (productName) query = query.ilike("products.name", `%${productName}%`);
+  if (productName) query = query.eq("products.name", productName);
 
   const { data: rows, error } = await query;
 
@@ -715,67 +759,14 @@ export default async function DashboardPage({
         method="get"
         className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
       >
-        <label className="flex flex-col gap-1 text-sm">
-          Product name
-          <input
-            type="text"
-            name="product"
-            defaultValue={productName}
-            placeholder="Search by product name..."
-            className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent"
-          />
-        </label>
-
-        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <label className="flex flex-col gap-1 text-sm">
-            From
-            <input
-              type="date"
-              name="from"
-              defaultValue={from}
-              className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent dark:[&::-webkit-calendar-picker-indicator]:invert"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            To
-            <input
-              type="date"
-              name="to"
-              defaultValue={to}
-              className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent dark:[&::-webkit-calendar-picker-indicator]:invert"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            Colour
-            <select
-              multiple
-              name="color"
-              defaultValue={colors}
-              className="h-24 rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent"
-            >
-              {availableColors.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            Size
-            <select
-              multiple
-              name="size"
-              defaultValue={sizes}
-              className="h-24 rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent"
-            >
-              {availableSizes.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <FilterFields
+          families={productFamilies}
+          initialProduct={productName}
+          initialColors={colors}
+          initialSizes={sizes}
+          from={from}
+          to={to}
+        />
 
         <fieldset className="mt-4">
           <legend className="text-sm">Stores</legend>
