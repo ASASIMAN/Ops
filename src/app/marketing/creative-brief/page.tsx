@@ -69,13 +69,12 @@ function monthLabel(monthKey: string) {
 /**
  * The month shown throughout this page is the month these notes are
  * ABOUT (the real ad data they're linked to), not month_key - which is
- * only the month the review was written/published in and can lag a
- * month behind (a review written in October is usually about
- * September's performance). Showing month_key as the headline date was
- * read as "this is September's own notes" when it's really about
- * August - this fixes that by making the thing people actually care
- * about ("what month is this about") the primary label everywhere, and
- * keeping the publish month as a small secondary note instead.
+ * only the internal row key (the month the review happened to be
+ * written in) and can lag a month behind the ad data it describes.
+ * Showing month_key as the headline date read as "this is October's
+ * own notes" when the content is really about September - this is the
+ * only date shown anywhere on the page now, so there's one unambiguous
+ * month per entry rather than two.
  */
 function reportingMonthKey(m: MonthRow): string {
   return m.meta_ads_reporting_start ? m.meta_ads_reporting_start.slice(0, 7) : m.month_key;
@@ -208,33 +207,24 @@ export default async function CreativeBriefPage({
               {selected && `Notes from ${reportingMonthLabel(selected)}`}
               {months.length > 1 && !hasMoM && " · only one month with ad data - no month-over-month comparison"}
             </p>
-            {selected && reportingMonthKey(selected) !== selected.month_key && (
-              <p className={`text-xs ${MUTED}`}>
-                Written {monthLabel(selected.month_key)}
-              </p>
-            )}
 
             <div className="mt-4 flex flex-wrap gap-2 print:hidden">
               {months
                 .slice()
                 .reverse()
-                .map((m) => {
-                  const writtenLater = reportingMonthKey(m) !== m.month_key;
-                  return (
-                    <Link
-                      key={m.month_key}
-                      href={`/marketing/creative-brief?month=${m.month_key}`}
-                      title={writtenLater ? `Written ${monthLabel(m.month_key)}` : undefined}
-                      className={`rounded-full border px-3 py-1 text-xs ${
-                        m.month_key === selected?.month_key
-                          ? "border-[#16342A] bg-[#16342A] text-white dark:border-[#4C8768] dark:bg-[#4C8768] dark:text-[#0d1712]"
-                          : `border-[#e4dcc6] ${MUTED} hover:border-[#B8862B] dark:border-[#2a3b30]`
-                      }`}
-                    >
-                      {reportingMonthLabel(m)}
-                    </Link>
-                  );
-                })}
+                .map((m) => (
+                  <Link
+                    key={m.month_key}
+                    href={`/marketing/creative-brief?month=${m.month_key}`}
+                    className={`rounded-full border px-3 py-1 text-xs ${
+                      m.month_key === selected?.month_key
+                        ? "border-[#16342A] bg-[#16342A] text-white dark:border-[#4C8768] dark:bg-[#4C8768] dark:text-[#0d1712]"
+                        : `border-[#e4dcc6] ${MUTED} hover:border-[#B8862B] dark:border-[#2a3b30]`
+                    }`}
+                  >
+                    {reportingMonthLabel(m)}
+                  </Link>
+                ))}
             </div>
           </>
         )}
