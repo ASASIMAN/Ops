@@ -66,6 +66,24 @@ function monthLabel(monthKey: string) {
   return baliMonthFormatter.format(new Date(monthKey + "-01T00:00:00Z"));
 }
 
+/**
+ * The month shown throughout this page is the month these notes are
+ * ABOUT (the real ad data they're linked to), not month_key - which is
+ * only the month the review was written/published in and can lag a
+ * month behind (a review written in October is usually about
+ * September's performance). Showing month_key as the headline date was
+ * read as "this is September's own notes" when it's really about
+ * August - this fixes that by making the thing people actually care
+ * about ("what month is this about") the primary label everywhere, and
+ * keeping the publish month as a small secondary note instead.
+ */
+function reportingMonthKey(m: MonthRow): string {
+  return m.meta_ads_reporting_start ? m.meta_ads_reporting_start.slice(0, 7) : m.month_key;
+}
+function reportingMonthLabel(m: MonthRow): string {
+  return monthLabel(reportingMonthKey(m));
+}
+
 async function fetchSnapshots(
   admin: ReturnType<typeof createAdminClient>,
   start: string | null,
@@ -187,27 +205,36 @@ export default async function CreativeBriefPage({
         ) : (
           <>
             <p className={`mt-1 text-sm ${MUTED}`}>
-              {selected && monthLabel(selected.month_key)}
+              {selected && `Notes from ${reportingMonthLabel(selected)}`}
               {months.length > 1 && !hasMoM && " · only one month with ad data - no month-over-month comparison"}
             </p>
+            {selected && reportingMonthKey(selected) !== selected.month_key && (
+              <p className={`text-xs ${MUTED}`}>
+                Written {monthLabel(selected.month_key)}
+              </p>
+            )}
 
             <div className="mt-4 flex flex-wrap gap-2 print:hidden">
               {months
                 .slice()
                 .reverse()
-                .map((m) => (
-                  <Link
-                    key={m.month_key}
-                    href={`/marketing/creative-brief?month=${m.month_key}`}
-                    className={`rounded-full border px-3 py-1 text-xs ${
-                      m.month_key === selected?.month_key
-                        ? "border-[#16342A] bg-[#16342A] text-white dark:border-[#4C8768] dark:bg-[#4C8768] dark:text-[#0d1712]"
-                        : `border-[#e4dcc6] ${MUTED} hover:border-[#B8862B] dark:border-[#2a3b30]`
-                    }`}
-                  >
-                    {monthLabel(m.month_key)}
-                  </Link>
-                ))}
+                .map((m) => {
+                  const writtenLater = reportingMonthKey(m) !== m.month_key;
+                  return (
+                    <Link
+                      key={m.month_key}
+                      href={`/marketing/creative-brief?month=${m.month_key}`}
+                      title={writtenLater ? `Written ${monthLabel(m.month_key)}` : undefined}
+                      className={`rounded-full border px-3 py-1 text-xs ${
+                        m.month_key === selected?.month_key
+                          ? "border-[#16342A] bg-[#16342A] text-white dark:border-[#4C8768] dark:bg-[#4C8768] dark:text-[#0d1712]"
+                          : `border-[#e4dcc6] ${MUTED} hover:border-[#B8862B] dark:border-[#2a3b30]`
+                      }`}
+                    >
+                      {reportingMonthLabel(m)}
+                    </Link>
+                  );
+                })}
             </div>
           </>
         )}
@@ -225,7 +252,7 @@ export default async function CreativeBriefPage({
               <h2 className={`text-lg font-semibold ${FOREST}`}>Content Observations &amp; Direction</h2>
               {!selected.notes_md ? (
                 <p className={`mt-2 text-sm ${MUTED}`}>
-                  No notes.md for {monthLabel(selected.month_key)} — content observations unavailable.
+                  No notes.md for {reportingMonthLabel(selected)} — content observations unavailable.
                 </p>
               ) : observations.length === 0 ? (
                 <p className={`mt-2 text-sm ${MUTED}`}>notes.md has no numbered observations.</p>
@@ -260,7 +287,7 @@ export default async function CreativeBriefPage({
               </h2>
               {bestAdsSource === "none" ? (
                 <p className={`mt-2 text-sm ${MUTED}`}>
-                  No ad-links.csv or team-nominated links for {monthLabel(selected.month_key)} — best
+                  No ad-links.csv or team-nominated links for {reportingMonthLabel(selected)} — best
                   performing ads unavailable.
                 </p>
               ) : (
@@ -283,7 +310,7 @@ export default async function CreativeBriefPage({
                       >
                         <div className={`text-xs font-semibold ${FOREST}`}>
                           {bestAdsSource === "ranked" && !rankingSuppressed ? `#${i + 1} · ` : ""}
-                          {monthLabel(selected.month_key)}
+                          {reportingMonthLabel(selected)}
                         </div>
                         <div className="mt-1 truncate underline">{ad.permalink}</div>
                         {ad.adName && <div className={`mt-1 text-xs ${MUTED}`}>{ad.adName}</div>}
@@ -303,7 +330,7 @@ export default async function CreativeBriefPage({
               <h2 className={`text-lg font-semibold ${FOREST}`}>What to test next</h2>
               {!selected.review_md ? (
                 <p className={`mt-2 text-sm ${MUTED}`}>
-                  No review.md for {monthLabel(selected.month_key)} — creative-test / open-questions
+                  No review.md for {reportingMonthLabel(selected)} — creative-test / open-questions
                   briefs unavailable.
                 </p>
               ) : testBriefs.length === 0 ? (
@@ -378,7 +405,7 @@ export default async function CreativeBriefPage({
             className="mt-3 flex flex-col gap-3"
           >
             <label className="flex flex-col gap-1">
-              Month (YYYY-MM)
+              Month you&apos;re writing this in (YYYY-MM)
               <input
                 type="text"
                 name="monthKey"
@@ -388,6 +415,10 @@ export default async function CreativeBriefPage({
                 defaultValue={selected?.month_key}
                 className="rounded border border-[#e4dcc6] px-2 py-1.5 dark:border-[#2a3b30] dark:bg-transparent"
               />
+              <span className={`text-xs ${MUTED}`}>
+                Not the month these notes are about - that comes from whatever meta-ads.csv you
+                upload below. Writing in October about September&apos;s ads? Put 2026-10 here.
+              </span>
             </label>
             <label className="flex flex-col gap-1">
               meta-ads.csv (Ads Manager export)
