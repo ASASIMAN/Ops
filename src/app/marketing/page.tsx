@@ -38,6 +38,24 @@ interface MonthMetrics {
   metrics: Record<string, number>;
 }
 
+interface AdSnapshotRow {
+  ad_id: number;
+  reporting_start: string;
+  reporting_end: string;
+  last_significant_edit: string | null;
+  results: number | null;
+  cost_per_results: number | null;
+  purchases: number | null;
+  cost_per_purchase_idr: number | null;
+  ads: { ad_name: string } | null;
+}
+
+interface AdTileEntry {
+  name: string;
+  caption: string;
+  href: string;
+}
+
 function fmtIdr(v: number | undefined) {
   return v === undefined ? "-" : currencyFormatter.format(v);
 }
@@ -70,6 +88,62 @@ function Kpi({
         {mom && <span>MoM {mom}</span>}
         {yoy && <span>YoY {yoy}</span>}
         {!mom && !yoy && note && <span>{note}</span>}
+      </div>
+    </div>
+  );
+}
+
+function AdPulseTile({
+  lastAd,
+  bestAd,
+  bestAdMonthLabel,
+}: {
+  lastAd: AdTileEntry | null;
+  bestAd: AdTileEntry | null;
+  bestAdMonthLabel: string | null;
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+      <div className="text-xs text-zinc-500">Ads pulse</div>
+      <div className="mt-2 space-y-2.5">
+        <div>
+          <div className="text-[11px] text-zinc-500">Last ad (all time)</div>
+          {lastAd ? (
+            <>
+              <Link
+                href={lastAd.href}
+                className="block truncate text-sm font-medium hover:underline"
+                title={lastAd.name}
+              >
+                {lastAd.name}
+              </Link>
+              <div className="text-xs text-zinc-500">{lastAd.caption}</div>
+            </>
+          ) : (
+            <div className="text-sm text-zinc-400">-</div>
+          )}
+        </div>
+        <div>
+          <div className="text-[11px] text-zinc-500">
+            Best ad{bestAdMonthLabel ? ` (${bestAdMonthLabel})` : ""}
+          </div>
+          {bestAd ? (
+            <>
+              <Link
+                href={bestAd.href}
+                className="block truncate text-sm font-medium hover:underline"
+                title={bestAd.name}
+              >
+                {bestAd.name}
+              </Link>
+              <div className="text-xs text-zinc-500">{bestAd.caption}</div>
+            </>
+          ) : (
+            <div className="text-sm text-zinc-400">
+              {bestAdMonthLabel ? "no results data that period" : "-"}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -196,6 +270,79 @@ export default async function MarketingOverviewPage({
     selected?.metrics.meta_ad_spend_idr && selected?.metrics.online_sales_idr
       ? selected.metrics.online_sales_idr / selected.metrics.meta_ad_spend_idr
       : undefined;
+
+  // "Last ad" and "Best ad" pull from the real Meta Ads Manager imports
+  // (ad_performance_snapshots), a separate dataset from the financials
+  // sheet above - run after the Promise.all since the second query
+  // depends on the first (the most recent reporting period).
+  const { data: lastEditRows } = await supabase
+    .from("ad_performance_snapshots")
+    .select(
+      "ad_id, reporting_start, reporting_end, last_significant_edit, results, cost_per_results, purchases, cost_per_purchase_idr, ads ( ad_name )",
+    )
+    .not("last_significant_edit", "is", null)
+    // Several ads are often edited in the same bulk action and share an
+    // identical timestamp - among ties for "most recently edited", the
+    // tie-break favours whichever was cheapest per result, so this
+    // doesn't resolve to an arbitrary row.
+    .order("last_significant_edit", { ascending: false })
+    .order("cost_per_results", { ascending: true, nullsFirst: false })
+    .limit(1);
+  const lastEditSnapshot = (lastEditRows?.[0] ?? null) as unknown as AdSnapshotRow | null;
+
+  const { data: latestPeriodRow } = await supabase
+    .from("ad_performance_snapshots")
+    .select("reporting_end")
+    .order("reporting_end", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let bestLastMonthSnapshot: AdSnapshotRow | null = null;
+  let bestAdMonthLabel: string | null = null;
+  if (latestPeriodRow) {
+    bestAdMonthLabel = MONTH_LABEL.format(
+      new Date(latestPeriodRow.reporting_end + "T00:00:00Z"),
+    );
+    const { data: periodSnapshots } = await supabase
+      .from("ad_performance_snapshots")
+      .select(
+        "ad_id, reporting_start, reporting_end, last_significant_edit, results, cost_per_results, purchases, cost_per_purchase_idr, ads ( ad_name )",
+      )
+      .eq("reporting_end", latestPeriodRow.reporting_end);
+    const rows = (periodSnapshots ?? []) as unknown as AdSnapshotRow[];
+
+    // Prefer ranking by results/cost-per-result (this export tracks
+    // checkout-initiate as "Results" - see the Paid Media CSV adapter
+    // notes); fall back to purchases/CPA for older imports that had a
+    // real Purchases column instead.
+    const byResults = rows
+      .filter((r) => (r.results ?? 0) > 0 && r.cost_per_results !== null)
+      .sort((a, b) => Number(a.cost_per_results) - Number(b.cost_per_results));
+    const byPurchases = rows
+      .filter((r) => (r.purchases ?? 0) > 0 && r.cost_per_purchase_idr !== null)
+      .sort((a, b) => Number(a.cost_per_purchase_idr) - Number(b.cost_per_purchase_idr));
+    bestLastMonthSnapshot = byResults[0] ?? byPurchases[0] ?? null;
+  }
+
+  function adSnapshotToEntry(s: AdSnapshotRow | null, metricCaption: (s: AdSnapshotRow) => string): AdTileEntry | null {
+    if (!s || !s.ads) return null;
+    return {
+      name: s.ads.ad_name,
+      caption: metricCaption(s),
+      href: `/marketing/paid-media?start=${s.reporting_start}&end=${s.reporting_end}`,
+    };
+  }
+
+  const lastAdEntry = adSnapshotToEntry(lastEditSnapshot, (s) =>
+    s.last_significant_edit
+      ? `edited ${new Date(s.last_significant_edit).toLocaleDateString()}`
+      : "",
+  );
+  const bestAdEntry = adSnapshotToEntry(bestLastMonthSnapshot, (s) =>
+    s.results !== null && s.cost_per_results !== null
+      ? `${s.results} result${s.results === 1 ? "" : "s"} · ${currencyFormatter.format(Number(s.cost_per_results))}/result`
+      : `${s.purchases} purchase${s.purchases === 1 ? "" : "s"} · ${currencyFormatter.format(Number(s.cost_per_purchase_idr))} CPA`,
+  );
 
   const tileAreas = [
     { key: "financials", title: "Budget & Spend", hrefPrefix: "/marketing/financials" },
@@ -438,7 +585,21 @@ export default async function MarketingOverviewPage({
                   : undefined
               }
             />
+            <AdPulseTile
+              lastAd={lastAdEntry}
+              bestAd={bestAdEntry}
+              bestAdMonthLabel={bestAdMonthLabel}
+            />
           </div>
+          {!lastAdEntry && (
+            <p className="mt-2 text-xs text-zinc-500">
+              No Meta Ads CSV imported yet - the &quot;Ads pulse&quot; box fills in once one is.{" "}
+              <Link href="/marketing/import" className="underline">
+                Import one
+              </Link>
+              .
+            </p>
+          )}
 
           <p className="mt-3 text-xs text-zinc-500">
             From the Unit Economics (&quot;Ecom Breakdown&quot;) tab. Still not shown:
