@@ -843,8 +843,11 @@ export default async function DashboardPage({
         <p className="mt-6 text-sm text-[var(--ops-negative)]">Query error: {error.message}</p>
       )}
 
+      {/* Chart on the left, store split + top products stacked beside it: at
+          the wider page width a full-width chart scaled to ~500px tall. */}
+      <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       {/* --- Sales over time --- */}
-      <div className="mt-10">
+      <div>
         <SectionHeading
           title="Sales over time"
           subtitle="Revenue per trading day (Bali time), against the same number of days immediately before this range."
@@ -1035,7 +1038,7 @@ export default async function DashboardPage({
         )}
       </div>
 
-      <div className="mt-10 grid gap-10 lg:grid-cols-2">
+      <div className="space-y-10">
         {/* --- Sales split by store --- */}
         <div>
           <SectionHeading
@@ -1120,6 +1123,7 @@ export default async function DashboardPage({
             </div>
           )}
         </div>
+      </div>
       </div>
 
       {/* --- Top variants --- */}
