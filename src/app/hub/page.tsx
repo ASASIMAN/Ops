@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AsasiLogo } from "@/components/brand/asasi-logo";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import modules from "@config/modules.json";
@@ -88,8 +89,10 @@ export default async function HubPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-20">
-      <h1 className="text-2xl font-semibold tracking-tight">ASASI</h1>
-      <p className="mt-2 text-zinc-600 dark:text-zinc-400">
+      <h1>
+        <AsasiLogo className="h-12" />
+      </h1>
+      <p className="mt-4 text-zinc-600 dark:text-zinc-400">
         Pick a workspace.
       </p>
 

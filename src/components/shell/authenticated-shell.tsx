@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { AsasiLogo } from "@/components/brand/asasi-logo";
 import { SignOutButton } from "@/components/shell/sign-out-button";
 
 /**
@@ -33,9 +34,9 @@ export async function AuthenticatedShell({
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           <Link
             href="/hub"
-            className="text-sm font-semibold tracking-tight hover:text-zinc-600 dark:hover:text-zinc-300"
+            className="flex items-center hover:text-zinc-600 dark:hover:text-zinc-300"
           >
-            ASASI
+            <AsasiLogo className="h-6" />
           </Link>
           <div className="flex items-center gap-4 text-sm text-zinc-500">
             {user && (
