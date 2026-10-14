@@ -14,10 +14,9 @@
  * red #661813 / #772220 / #893131.
  */
 
-/* Maison Neue is a licensed font, so it isn't bundled. Put the web-font
-   files in public/fonts/ with these names and it takes over automatically;
-   until then the stack falls back to Helvetica Neue / Arial (same grotesque
-   family of shapes). */
+/* Maison Neue web fonts: public/fonts/MaisonNeue-{Book,Medium,Bold}.woff2
+   (weights 400 / 500 / 700). If a file is ever missing, the stack falls
+   back to Helvetica Neue / Arial. */
 @font-face {
   font-family: "Maison Neue";
   font-weight: 400;
@@ -68,7 +67,7 @@
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .2 0 0 0 0 .18 0 0 0 0 .1 0 0 0 .07 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
   color: var(--ops-ink);
   font-family: "Maison Neue", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-feature-settings: "ss01", "kern";
+  font-feature-settings: "kern";
   -webkit-font-smoothing: antialiased;
 }
 
