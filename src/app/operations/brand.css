@@ -1,0 +1,146 @@
+/*
+ * ASASI brand theme for /operations, from the brand guidelines (Colour and
+ * Typography pages). Scoped to `.ops-brand` (set in layout.tsx) so the other
+ * workspaces keep their current look until they're restyled.
+ *
+ * How it works: the page is written with Tailwind's zinc scale (50 lightest
+ * -> 950 darkest) and `dark:` variants. Rather than rewrite every class, the
+ * zinc scale is re-pointed here to brand neutrals, so everything on the page
+ * - including the shared header - picks the brand up. Light mode is the
+ * cream paper look; dark mode is the brand green.
+ *
+ * Brand colours: green #1C2B10 / #243316 / #304221, cream #F5F0E2, charcoal
+ * #222223 / #3A3A3A / #5B5B5B, copper #B58156 / #BF8F6B / #D3A98C, accent
+ * red #661813 / #772220 / #893131.
+ */
+
+/* Maison Neue is a licensed font, so it isn't bundled. Put the web-font
+   files in public/fonts/ with these names and it takes over automatically;
+   until then the stack falls back to Helvetica Neue / Arial (same grotesque
+   family of shapes). */
+@font-face {
+  font-family: "Maison Neue";
+  font-weight: 400;
+  font-display: swap;
+  src: local("Maison Neue Book"), local("MaisonNeue-Book"),
+    url("/fonts/MaisonNeue-Book.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Maison Neue";
+  font-weight: 500;
+  font-display: swap;
+  src: local("Maison Neue Medium"), local("MaisonNeue-Medium"),
+    url("/fonts/MaisonNeue-Medium.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Maison Neue";
+  font-weight: 700;
+  font-display: swap;
+  src: local("Maison Neue Bold"), local("MaisonNeue-Bold"),
+    url("/fonts/MaisonNeue-Bold.woff2") format("woff2");
+}
+
+.ops-brand {
+  --ops-bg: #f5f0e2;
+  --ops-ink: #222223;
+  --ops-rule: #222223;
+  --ops-positive: #304221;
+  --ops-negative: #893131;
+  --ops-notice-bg: #ece1c9;
+  --ops-notice-border: #b58156;
+  --ops-notice-ink: #661813;
+
+  --color-zinc-50: #ede7d6;
+  --color-zinc-100: #e6dfcb;
+  --color-zinc-200: #d6ceb5;
+  --color-zinc-300: #bdb498;
+  --color-zinc-400: #77735f;
+  --color-zinc-500: #5b5b5b;
+  --color-zinc-600: #3a3a3a;
+  --color-zinc-700: #2b2b2c;
+  --color-zinc-800: #222223;
+  --color-zinc-900: #1c2b10;
+  --color-zinc-950: #141f0b;
+
+  min-height: 100vh;
+  background-color: var(--ops-bg);
+  /* faint paper grain, as on the guideline pages */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .2 0 0 0 0 .18 0 0 0 0 .1 0 0 0 .07 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  color: var(--ops-ink);
+  font-family: "Maison Neue", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-feature-settings: "ss01", "kern";
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ops-brand {
+    --ops-bg: #1c2b10;
+    --ops-ink: #f5f0e2;
+    --ops-rule: #f5f0e2;
+    --ops-positive: #8fb06f;
+    --ops-negative: #e0877f;
+    --ops-notice-bg: #243316;
+    --ops-notice-border: #b58156;
+    --ops-notice-ink: #d3a98c;
+
+    --color-zinc-50: #f5f0e2;
+    --color-zinc-100: #e8e2d0;
+    --color-zinc-200: #d3cdba;
+    --color-zinc-300: #bdb8a6;
+    --color-zinc-400: #98a088;
+    --color-zinc-500: #7f8870;
+    --color-zinc-600: #5e6a50;
+    --color-zinc-700: #455338;
+    --color-zinc-800: #304221;
+    --color-zinc-900: #243316;
+    --color-zinc-950: #1c2b10;
+
+    background-image: none;
+  }
+}
+
+/* Square corners, as in the guidelines' rules and colour blocks. The pie
+   and legend dots keep rounded-full (circles are the chart, not chrome). */
+.ops-brand .rounded,
+.ops-brand .rounded-lg,
+.ops-brand .rounded-md,
+.ops-brand .rounded-sm {
+  border-radius: 0;
+}
+
+.ops-brand button,
+.ops-brand input,
+.ops-brand select {
+  font-family: inherit;
+}
+
+/* Form controls follow the brand rules: hairline, no rounding, ink focus. */
+.ops-brand input:focus-visible,
+.ops-brand select:focus-visible,
+.ops-brand button:focus-visible {
+  outline: 2px solid var(--ops-rule);
+  outline-offset: 1px;
+}
+
+/* Small uppercase labels, as in the guidelines' section markers
+   ("PRIMARY TYPEFACE", "COLOUR"). */
+.ops-brand label.flex-col,
+.ops-brand fieldset > legend {
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ops-brand thead th {
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+/* buttons don't inherit text styling by default */
+.ops-brand thead th button {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
