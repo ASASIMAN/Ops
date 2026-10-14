@@ -92,6 +92,19 @@ body:has(.ops-brand) {
   }
 }
 
+/* Wider page than the other workspaces: the sales tables have a dozen
+   columns and were forcing a horizontal scroll at max-w-6xl. The shared
+   header's inner container is widened to match so its edges line up. */
+.ops-brand header .max-w-6xl {
+  max-width: 1800px;
+}
+@media (min-width: 1024px) {
+  .ops-brand header .max-w-6xl {
+    padding-left: 2.5rem;
+    padding-right: 2.5rem;
+  }
+}
+
 /* Square corners, as in the guidelines' rules and colour blocks. The pie
    and legend dots keep rounded-full (circles are the chart, not chrome). */
 .ops-brand .rounded,

@@ -698,7 +698,7 @@ export default async function DashboardPage({
   }));
 
   return (
-    <div className={`mx-auto max-w-6xl px-6 py-10 ${PIE_SCOPE} ${BAR_SCOPE} ${TREND_SCOPE}`}>
+    <div className={`mx-auto max-w-[1800px] px-6 py-10 lg:px-10 ${PIE_SCOPE} ${BAR_SCOPE} ${TREND_SCOPE}`}>
       <style dangerouslySetInnerHTML={{ __html: vizCss }} />
       <h1 className="text-4xl font-bold uppercase mb-2 leading-[0.95] tracking-tight sm:text-6xl">Sales Dashboard</h1>
       <p className="mt-1 text-sm text-zinc-600">

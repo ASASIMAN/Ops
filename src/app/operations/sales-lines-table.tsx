@@ -144,16 +144,15 @@ export function SalesLinesTable({ rows }: { rows: SalesLineRow[] }) {
         </thead>
         <tbody>
           {pageRows.map((row) => (
-            <tr
-              key={row.id}
-              className="border-t border-zinc-100"
-            >
+            <tr key={row.id} className="border-t border-zinc-100">
               <td className="px-3 py-2 whitespace-nowrap">{row.dateLabel}</td>
               <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
                 {row.orderRef}
               </td>
               <td className="px-3 py-2">{row.store}</td>
-              <td className="px-3 py-2 font-mono text-xs">{row.sku}</td>
+              <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
+                {row.sku}
+              </td>
               <td className="px-3 py-2">{row.product}</td>
               <td className="px-3 py-2">{row.category}</td>
               <td className="px-3 py-2">{row.variant}</td>
