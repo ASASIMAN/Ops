@@ -21,8 +21,8 @@ export interface ProductFamily {
 }
 
 const SELECT_CLASS =
-  "rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent";
-const DATE_CLASS = `${SELECT_CLASS} dark:[&::-webkit-calendar-picker-indicator]:invert`;
+  "rounded border border-zinc-300 px-2 py-1";
+const DATE_CLASS = `${SELECT_CLASS}`;
 
 function union(lists: string[][]): string[] {
   return Array.from(new Set(lists.flat())).sort();

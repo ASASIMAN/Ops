@@ -133,7 +133,7 @@ export function SalesOverTimeChart({
               y1={chartTop}
               y2={chartBottom}
               stroke="currentColor"
-              className="text-zinc-300 dark:text-zinc-700"
+              className="text-zinc-300"
               strokeWidth={1}
               strokeDasharray="3 3"
             />
@@ -171,12 +171,12 @@ export function SalesOverTimeChart({
               width={TOOLTIP_W}
               height={tooltipH}
               rx={4}
-              className="fill-zinc-900 dark:fill-zinc-100"
+              className="fill-zinc-900"
             />
             <text
               x={8}
               y={14}
-              className="fill-zinc-300 text-[8px] uppercase tracking-wide dark:fill-zinc-600"
+              className="fill-zinc-300 text-[8px] uppercase tracking-wide"
             >
               {displayDay.currentLabel}
             </text>
@@ -189,7 +189,7 @@ export function SalesOverTimeChart({
             <text
               x={18}
               y={29}
-              className="fill-white text-[9px] font-medium dark:fill-zinc-900"
+              className="fill-white text-[9px] font-medium"
             >
               {displayDay.currentValueLabel}
               {displayDay.currentUnits !== null &&
@@ -206,7 +206,7 @@ export function SalesOverTimeChart({
                 <text
                   x={18}
                   y={44}
-                  className="fill-zinc-300 text-[9px] dark:fill-zinc-600"
+                  className="fill-zinc-300 text-[9px]"
                 >
                   {displayDay.previousLabel}: {displayDay.previousValueLabel}
                   {displayDay.previousUnits !== null &&

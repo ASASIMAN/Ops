@@ -6,8 +6,8 @@
  * How it works: the page is written with Tailwind's zinc scale (50 lightest
  * -> 950 darkest) and `dark:` variants. Rather than rewrite every class, the
  * zinc scale is re-pointed here to brand neutrals, so everything on the page
- * - including the shared header - picks the brand up. Light mode is the
- * cream paper look; dark mode is the brand green.
+ * - including the shared header - picks the brand up. Beige page, olive-green
+ * type; there is no dark variant.
  *
  * Brand colours: green #1C2B10 / #243316 / #304221, cream #F5F0E2, charcoal
  * #222223 / #3A3A3A / #5B5B5B, copper #B58156 / #BF8F6B / #D3A98C, accent
@@ -40,61 +40,55 @@
 }
 
 .ops-brand {
+  /* Always the brand beige with olive-green type - this workspace has no
+     dark theme, whatever the OS is set to. */
+  color-scheme: light;
   --ops-bg: #f5f0e2;
-  --ops-ink: #222223;
-  --ops-rule: #222223;
+  --ops-ink: #1c2b10;
+  --ops-rule: #1c2b10;
   --ops-positive: #304221;
   --ops-negative: #893131;
   --ops-notice-bg: #ece1c9;
   --ops-notice-border: #b58156;
   --ops-notice-ink: #661813;
 
+  /* Tailwind's zinc scale re-pointed to brand neutrals: 50-300 are the
+     beige surfaces/borders, 400-950 the olive-green text steps. */
   --color-zinc-50: #ede7d6;
   --color-zinc-100: #e6dfcb;
   --color-zinc-200: #d6ceb5;
   --color-zinc-300: #bdb498;
-  --color-zinc-400: #77735f;
-  --color-zinc-500: #5b5b5b;
-  --color-zinc-600: #3a3a3a;
-  --color-zinc-700: #2b2b2c;
-  --color-zinc-800: #222223;
+  --color-zinc-400: #6b7358;
+  --color-zinc-500: #4d5842;
+  --color-zinc-600: #36432b;
+  --color-zinc-700: #2a3820;
+  --color-zinc-800: #1c2b10;
   --color-zinc-900: #1c2b10;
   --color-zinc-950: #141f0b;
 
   min-height: 100vh;
   background-color: var(--ops-bg);
-  /* faint paper grain, as on the guideline pages */
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .2 0 0 0 0 .18 0 0 0 0 .1 0 0 0 .07 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
   color: var(--ops-ink);
   font-family: "Maison Neue", "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-feature-settings: "kern";
   -webkit-font-smoothing: antialiased;
 }
 
+/* The root layout paints <body> black in dark mode; keep overscroll and any
+   gap around the workspace beige too. */
+body:has(.ops-brand) {
+  background-color: #f5f0e2;
+}
+
+/* The shared header carries `dark:` utilities written for the other
+   workspaces; keep it on the beige theme when the OS is in dark mode. */
 @media (prefers-color-scheme: dark) {
-  .ops-brand {
-    --ops-bg: #1c2b10;
-    --ops-ink: #f5f0e2;
-    --ops-rule: #f5f0e2;
-    --ops-positive: #8fb06f;
-    --ops-negative: #e0877f;
-    --ops-notice-bg: #243316;
-    --ops-notice-border: #b58156;
-    --ops-notice-ink: #d3a98c;
-
-    --color-zinc-50: #f5f0e2;
-    --color-zinc-100: #e8e2d0;
-    --color-zinc-200: #d3cdba;
-    --color-zinc-300: #bdb8a6;
-    --color-zinc-400: #98a088;
-    --color-zinc-500: #7f8870;
-    --color-zinc-600: #5e6a50;
-    --color-zinc-700: #455338;
-    --color-zinc-800: #304221;
-    --color-zinc-900: #243316;
-    --color-zinc-950: #1c2b10;
-
-    background-image: none;
+  .ops-brand header {
+    border-color: #d6ceb5;
+  }
+  .ops-brand header a:hover,
+  .ops-brand header button:hover {
+    color: var(--ops-ink);
   }
 }
 

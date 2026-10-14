@@ -118,7 +118,7 @@ export function SalesLinesTable({ rows }: { rows: SalesLineRow[] }) {
   return (
     <>
       <table className="w-full text-sm">
-        <thead className="bg-zinc-50 text-left dark:bg-zinc-900">
+        <thead className="bg-zinc-50 text-left">
           <tr>
             {COLUMNS.map((col) => (
               <th key={col.key} className="px-3 py-2">
@@ -127,7 +127,7 @@ export function SalesLinesTable({ rows }: { rows: SalesLineRow[] }) {
                   onClick={() => toggleSort(col.key)}
                   className={`flex w-full items-center gap-1 ${
                     col.align === "right" ? "justify-end" : "justify-start"
-                  } hover:text-zinc-900 dark:hover:text-zinc-50`}
+                  } hover:text-zinc-900`}
                 >
                   {col.label}
                   <span className="text-[10px] text-zinc-400">
@@ -146,7 +146,7 @@ export function SalesLinesTable({ rows }: { rows: SalesLineRow[] }) {
           {pageRows.map((row) => (
             <tr
               key={row.id}
-              className="border-t border-zinc-100 dark:border-zinc-800"
+              className="border-t border-zinc-100"
             >
               <td className="px-3 py-2 whitespace-nowrap">{row.dateLabel}</td>
               <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
@@ -179,7 +179,7 @@ export function SalesLinesTable({ rows }: { rows: SalesLineRow[] }) {
         </tbody>
       </table>
       {pageCount > 1 && (
-        <div className="flex items-center justify-between gap-3 border-t border-zinc-200 px-3 py-2 text-xs text-zinc-500 dark:border-zinc-800">
+        <div className="flex items-center justify-between gap-3 border-t border-zinc-200 px-3 py-2 text-xs text-zinc-500">
           <span>
             Showing {pageStart + 1}-
             {Math.min(pageStart + PAGE_SIZE, sortedRows.length)} of{" "}
@@ -190,7 +190,7 @@ export function SalesLinesTable({ rows }: { rows: SalesLineRow[] }) {
               type="button"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={currentPage === 1}
-              className="rounded border border-zinc-300 px-2 py-1 disabled:opacity-40 dark:border-zinc-700"
+              className="rounded border border-zinc-300 px-2 py-1 disabled:opacity-40"
             >
               Previous
             </button>
@@ -201,7 +201,7 @@ export function SalesLinesTable({ rows }: { rows: SalesLineRow[] }) {
               type="button"
               onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
               disabled={currentPage === pageCount}
-              className="rounded border border-zinc-300 px-2 py-1 disabled:opacity-40 dark:border-zinc-700"
+              className="rounded border border-zinc-300 px-2 py-1 disabled:opacity-40"
             >
               Next
             </button>

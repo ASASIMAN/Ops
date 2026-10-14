@@ -34,24 +34,24 @@ export function paletteSlot(
  * ASASI brand chart palette (brand guidelines, Colour page), used on
  * /operations. Slot order was picked by searching orderings for the best
  * adjacent-pair separation with scripts/validate_palette.js against the
- * brand surfaces (cream #F5F0E2 / green #243316):
+ * brand surface (beige #F5F0E2):
  *
  * - slots 0-1 are the two-series pair (this period vs previous) and clear
- *   the colour-blind and normal-vision separation checks in both modes;
+ *   the colour-blind and normal-vision separation checks;
  * - the brand palette is deliberately muted, so the generic chroma-floor
  *   and lightness-band checks flag it by design - and from slot 2 on the
- *   adjacent separation is weaker (dark mode especially), which is why
+ *   adjacent separation is weaker, which is why
  *   every multi-series chart that uses it keeps a labelled legend and a
  *   table view rather than relying on colour alone;
- * - dark mode uses lighter tints of the brand copper/red/green/tan since
- *   the brand's own deep red and green are unreadable on a green surface.
+ * - /operations is beige-only (no dark theme), so the dark step equals the
+ *   light step; the field stays because paletteCss emits both.
  */
 export const BRAND_PALETTE: PaletteSlot[] = [
-  { light: "#304221", dark: "#F5F0E2" }, // brand green / cream
+  { light: "#304221", dark: "#304221" }, // brand green
   { light: "#B58156", dark: "#B58156" }, // brand copper
-  { light: "#893131", dark: "#E0877F" }, // brand red / red tint
-  { light: "#D3A98C", dark: "#9AA08C" }, // brand tan / sage grey
-  { light: "#5B5B5B", dark: "#D3A98C" }, // brand grey / tan
+  { light: "#893131", dark: "#893131" }, // brand red
+  { light: "#D3A98C", dark: "#D3A98C" }, // brand tan
+  { light: "#5B5B5B", dark: "#5B5B5B" }, // brand grey
 ];
 
 /** CSS custom property names have to be idents, and keys come from data. */

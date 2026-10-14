@@ -309,7 +309,7 @@ export default async function DashboardPage({
         <h1 className="text-4xl font-bold uppercase mb-2 leading-[0.95] tracking-tight sm:text-6xl">
           Sales Dashboard
         </h1>
-        <p className="mt-2 text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2 text-zinc-600">
           Not set up yet - SUPABASE_SERVICE_ROLE_KEY is missing. See the
           README for what to configure before this page will work.
         </p>
@@ -701,13 +701,13 @@ export default async function DashboardPage({
     <div className={`mx-auto max-w-6xl px-6 py-10 ${PIE_SCOPE} ${BAR_SCOPE} ${TREND_SCOPE}`}>
       <style dangerouslySetInnerHTML={{ __html: vizCss }} />
       <h1 className="text-4xl font-bold uppercase mb-2 leading-[0.95] tracking-tight sm:text-6xl">Sales Dashboard</h1>
-      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+      <p className="mt-1 text-sm text-zinc-600">
         Synced from Odoo POS. Dates and daily buckets are Bali time (WITA).{" "}
         {!process.env.ODOO_URL &&
           "Odoo isn't connected yet, so there's no data to show - see README."}
       </p>
 
-      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800">
+      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 p-3 text-sm">
         <span className="text-zinc-500">Last sync:</span>
         {lastSync ? (
           <span>
@@ -740,12 +740,12 @@ export default async function DashboardPage({
               defaultValue={7}
               min={1}
               max={90}
-              className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-transparent"
+              className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm"
             />
           </label>
           <button
             type="submit"
-            className="border border-[var(--ops-rule)] px-3 py-1 text-xs font-medium uppercase tracking-wider hover:bg-zinc-100 dark:hover:bg-zinc-900"
+            className="border border-[var(--ops-rule)] px-3 py-1 text-xs font-medium uppercase tracking-wider hover:bg-zinc-100"
           >
             Sync now
           </button>
@@ -761,7 +761,7 @@ export default async function DashboardPage({
 
       <form
         method="get"
-        className="mt-6 border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4 dark:border-zinc-800 dark:border-t-[var(--ops-rule)]"
+        className="mt-6 border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4"
       >
         <FilterFields
           families={productFamilies}
@@ -778,14 +778,14 @@ export default async function DashboardPage({
             {selectableStores.map((s) => (
               <label
                 key={s.id}
-                className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300"
+                className="flex items-center gap-2 text-sm text-zinc-700"
               >
                 <input
                   type="checkbox"
                   name="store"
                   value={s.id}
                   defaultChecked={storeIds.includes(s.id)}
-                  className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
+                  className="h-4 w-4 rounded border-zinc-300"
                 />
                 {s.name}
               </label>
@@ -801,33 +801,33 @@ export default async function DashboardPage({
 
         <button
           type="submit"
-          className="mt-4 bg-zinc-900 px-5 py-2 text-xs font-medium uppercase tracking-wider text-zinc-50 hover:opacity-90 dark:bg-zinc-50 dark:text-zinc-900"
+          className="mt-4 bg-zinc-900 px-5 py-2 text-xs font-medium uppercase tracking-wider text-zinc-50 hover:opacity-90"
         >
           Apply filters
         </button>
       </form>
 
       <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <div className="border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4 dark:border-zinc-800 dark:border-t-[var(--ops-rule)]">
+        <div className="border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4">
           <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">Revenue</div>
           <div className="text-2xl font-medium tracking-tight">
             {currencyFormatter.format(totalRevenue)}
           </div>
           <GrowthBadge pct={revenueGrowth} spanDays={spanDays} />
         </div>
-        <div className="border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4 dark:border-zinc-800 dark:border-t-[var(--ops-rule)]">
+        <div className="border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4">
           <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">Units sold</div>
           <div className="text-2xl font-medium tracking-tight">{totalQty.toLocaleString()}</div>
           <GrowthBadge pct={unitsGrowth} spanDays={spanDays} />
         </div>
-        <div className="border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4 dark:border-zinc-800 dark:border-t-[var(--ops-rule)]">
+        <div className="border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4">
           <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">Orders</div>
           <div className="text-2xl font-medium tracking-tight">
             {totalOrders !== null ? totalOrders.toLocaleString() : "-"}
           </div>
           <GrowthBadge pct={ordersGrowth} spanDays={spanDays} />
         </div>
-        <div className="border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4 dark:border-zinc-800 dark:border-t-[var(--ops-rule)]">
+        <div className="border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4">
           <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">Line items</div>
           <div className="text-2xl font-medium tracking-tight">{totalLines.toLocaleString()}</div>
         </div>
@@ -864,7 +864,7 @@ export default async function DashboardPage({
                   style={{ backgroundColor: paletteVar("current") }}
                 />
                 <div>
-                  <div className="font-medium text-zinc-700 dark:text-zinc-300">
+                  <div className="font-medium text-zinc-700">
                     This period
                   </div>
                   <div className="text-zinc-400">
@@ -879,7 +879,7 @@ export default async function DashboardPage({
                     style={{ backgroundColor: paletteVar("previous") }}
                   />
                   <div>
-                    <div className="font-medium text-zinc-700 dark:text-zinc-300">
+                    <div className="font-medium text-zinc-700">
                       Previous period
                     </div>
                     <div className="text-zinc-400">
@@ -903,7 +903,7 @@ export default async function DashboardPage({
                     y1={chartY(t)}
                     y2={chartY(t)}
                     stroke="currentColor"
-                    className="text-zinc-200 dark:text-zinc-800"
+                    className="text-zinc-200"
                     strokeWidth={1}
                   />
                   <text
@@ -1015,7 +1015,7 @@ export default async function DashboardPage({
                     {daily.map((d) => (
                       <tr
                         key={d.day}
-                        className="border-t border-zinc-100 dark:border-zinc-800"
+                        className="border-t border-zinc-100"
                       >
                         <td className="px-2 py-1">
                           {dayLabelFormatter.format(new Date(`${d.day}T00:00:00Z`))}
@@ -1062,7 +1062,7 @@ export default async function DashboardPage({
                         className="h-2.5 w-2.5 shrink-0 rounded-full"
                         style={{ backgroundColor: paletteVar(s.key) }}
                       />
-                      <span className="text-zinc-600 dark:text-zinc-400">
+                      <span className="text-zinc-600">
                         {s.name}
                       </span>
                       <span className="text-zinc-400">
@@ -1106,7 +1106,7 @@ export default async function DashboardPage({
                       {formatRupiahCompact(p.revenue)}
                     </span>
                   </div>
-                  <div className="mt-0.5 h-3 bg-zinc-100 dark:bg-zinc-900">
+                  <div className="mt-0.5 h-3 bg-zinc-100">
                     <div
                       className="h-3"
                       style={{
@@ -1131,9 +1131,9 @@ export default async function DashboardPage({
         {topVariantsResult.error ? (
           <RollupUnavailable message={topVariantsResult.error} />
         ) : (
-          <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+          <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-200">
             <table className="w-full text-sm">
-              <thead className="bg-zinc-50 text-left dark:bg-zinc-900">
+              <thead className="bg-zinc-50 text-left">
                 <tr>
                   <th className="px-3 py-2">#</th>
                   <th className="px-3 py-2">SKU</th>
@@ -1151,7 +1151,7 @@ export default async function DashboardPage({
                 {topVariants.map((v, i) => (
                   <tr
                     key={v.product_id}
-                    className="border-t border-zinc-100 dark:border-zinc-800"
+                    className="border-t border-zinc-100"
                   >
                     <td className="px-3 py-2 text-zinc-400">{i + 1}</td>
                     <td className="px-3 py-2 font-mono text-xs">{v.sku ?? "-"}</td>
@@ -1196,7 +1196,7 @@ export default async function DashboardPage({
           title="Sales lines"
           subtitle={`Most recent first, up to ${ROW_LIMIT} rows.`}
         />
-        <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+        <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-200">
           <SalesLinesTable rows={salesLineRows} />
         </div>
 
