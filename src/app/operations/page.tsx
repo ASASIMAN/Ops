@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { syncNowAction } from "./actions";
 import { BALI_TZ, formatRupiahCompact } from "@/lib/creative-brief/format";
-import { paletteCss, paletteVar } from "@/lib/viz/palette";
+import { BRAND_PALETTE, paletteCss, paletteVar } from "@/lib/viz/palette";
 import { SalesOverTimeChart } from "./sales-over-time-chart";
 import { SalesLinesTable, type SalesLineRow } from "./sales-lines-table";
 import { FilterFields, type ProductFamily } from "./filter-fields";
@@ -216,12 +216,14 @@ function SectionHeading({
   subtitle?: string;
 }) {
   return (
-    <>
-      <h2 className="text-lg font-medium">{title}</h2>
+    <div className="flex flex-col gap-1 border-b border-[var(--ops-rule)] pb-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-8">
+      <h2 className="text-sm font-bold uppercase tracking-wide">{title}</h2>
       {subtitle && (
-        <p className="mt-0.5 text-xs text-zinc-500">{subtitle}</p>
+        <p className="max-w-xl text-xs text-zinc-500 sm:text-right">
+          {subtitle}
+        </p>
       )}
-    </>
+    </div>
   );
 }
 
@@ -234,8 +236,8 @@ function GrowthBadge({ pct, spanDays }: { pct: number | null; spanDays: number }
         flat
           ? "text-zinc-400"
           : pct > 0
-            ? "text-emerald-600 dark:text-emerald-400"
-            : "text-red-600 dark:text-red-400"
+            ? "text-[var(--ops-positive)]"
+            : "text-[var(--ops-negative)]"
       }`}
     >
       {flat ? "–" : pct > 0 ? "▲" : "▼"} {Math.abs(pct).toFixed(1)}% vs
@@ -277,7 +279,7 @@ async function fetchProductFacets(
 
 function RollupUnavailable({ message }: { message: string }) {
   return (
-    <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
+    <p className="mt-2 border border-[var(--ops-notice-border)] bg-[var(--ops-notice-bg)] px-3 py-2 text-xs text-[var(--ops-notice-ink)]">
       Not shown - a sales rollup function isn&apos;t available. Make sure
       every migration in <code>supabase/migrations/</code> numbered 0022 and
       above has been run, in order, in the Supabase SQL editor. If you just
@@ -304,10 +306,10 @@ export default async function DashboardPage({
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return (
       <div className="mx-auto max-w-2xl px-6 py-16">
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="text-4xl font-bold uppercase mb-2 leading-[0.95] tracking-tight sm:text-6xl">
           Sales Dashboard
         </h1>
-        <p className="mt-2 text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2 text-zinc-600">
           Not set up yet - SUPABASE_SERVICE_ROLE_KEY is missing. See the
           README for what to configure before this page will work.
         </p>
@@ -668,9 +670,11 @@ export default async function DashboardPage({
     paletteCss(
       PIE_SCOPE,
       pieSlices.map((s) => s.key),
+      "c-",
+      BRAND_PALETTE,
     ) +
-    paletteCss(BAR_SCOPE, ["bar"]) +
-    paletteCss(TREND_SCOPE, ["current", "previous"]);
+    paletteCss(BAR_SCOPE, ["bar"], "c-", BRAND_PALETTE) +
+    paletteCss(TREND_SCOPE, ["current", "previous"], "c-", BRAND_PALETTE);
   const conicStops = pieSlices
     .map(
       (s) =>
@@ -694,16 +698,16 @@ export default async function DashboardPage({
   }));
 
   return (
-    <div className={`mx-auto max-w-6xl px-6 py-10 ${PIE_SCOPE} ${BAR_SCOPE} ${TREND_SCOPE}`}>
+    <div className={`mx-auto max-w-[1800px] px-6 py-10 lg:px-10 ${PIE_SCOPE} ${BAR_SCOPE} ${TREND_SCOPE}`}>
       <style dangerouslySetInnerHTML={{ __html: vizCss }} />
-      <h1 className="text-2xl font-semibold tracking-tight">Sales Dashboard</h1>
-      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+      <h1 className="text-4xl font-bold uppercase mb-2 leading-[0.95] tracking-tight sm:text-6xl">Sales Dashboard</h1>
+      <p className="mt-1 text-sm text-zinc-600">
         Synced from Odoo POS. Dates and daily buckets are Bali time (WITA).{" "}
         {!process.env.ODOO_URL &&
           "Odoo isn't connected yet, so there's no data to show - see README."}
       </p>
 
-      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800">
+      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 p-3 text-sm">
         <span className="text-zinc-500">Last sync:</span>
         {lastSync ? (
           <span>
@@ -714,7 +718,7 @@ export default async function DashboardPage({
               </>
             )}
             {lastSync.status === "error" && (
-              <span className="text-red-600">
+              <span className="text-[var(--ops-negative)]">
                 ❌ failed {new Date(lastSync.started_at).toLocaleString()}:{" "}
                 {lastSync.error_message}
               </span>
@@ -736,12 +740,12 @@ export default async function DashboardPage({
               defaultValue={7}
               min={1}
               max={90}
-              className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-transparent"
+              className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm"
             />
           </label>
           <button
             type="submit"
-            className="rounded border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            className="border border-[var(--ops-rule)] px-3 py-1 text-xs font-medium uppercase tracking-wider hover:bg-zinc-100"
           >
             Sync now
           </button>
@@ -757,7 +761,7 @@ export default async function DashboardPage({
 
       <form
         method="get"
-        className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+        className="mt-6 border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4"
       >
         <FilterFields
           families={productFamilies}
@@ -774,14 +778,14 @@ export default async function DashboardPage({
             {selectableStores.map((s) => (
               <label
                 key={s.id}
-                className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300"
+                className="flex items-center gap-2 text-sm text-zinc-700"
               >
                 <input
                   type="checkbox"
                   name="store"
                   value={s.id}
                   defaultChecked={storeIds.includes(s.id)}
-                  className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
+                  className="h-4 w-4 rounded border-zinc-300"
                 />
                 {s.name}
               </label>
@@ -797,50 +801,53 @@ export default async function DashboardPage({
 
         <button
           type="submit"
-          className="mt-4 rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
+          className="mt-4 bg-zinc-900 px-5 py-2 text-xs font-medium uppercase tracking-wider text-zinc-50 hover:opacity-90"
         >
           Apply filters
         </button>
       </form>
 
       <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-          <div className="text-xs text-zinc-500">Revenue</div>
-          <div className="text-xl font-semibold">
+        <div className="border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">Revenue</div>
+          <div className="text-2xl font-medium tracking-tight">
             {currencyFormatter.format(totalRevenue)}
           </div>
           <GrowthBadge pct={revenueGrowth} spanDays={spanDays} />
         </div>
-        <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-          <div className="text-xs text-zinc-500">Units sold</div>
-          <div className="text-xl font-semibold">{totalQty.toLocaleString()}</div>
+        <div className="border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">Units sold</div>
+          <div className="text-2xl font-medium tracking-tight">{totalQty.toLocaleString()}</div>
           <GrowthBadge pct={unitsGrowth} spanDays={spanDays} />
         </div>
-        <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-          <div className="text-xs text-zinc-500">Orders</div>
-          <div className="text-xl font-semibold">
+        <div className="border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">Orders</div>
+          <div className="text-2xl font-medium tracking-tight">
             {totalOrders !== null ? totalOrders.toLocaleString() : "-"}
           </div>
           <GrowthBadge pct={ordersGrowth} spanDays={spanDays} />
         </div>
-        <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-          <div className="text-xs text-zinc-500">Line items</div>
-          <div className="text-xl font-semibold">{totalLines.toLocaleString()}</div>
+        <div className="border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">Line items</div>
+          <div className="text-2xl font-medium tracking-tight">{totalLines.toLocaleString()}</div>
         </div>
       </div>
       {totalsAreCapped && (
-        <p className="mt-2 text-xs text-amber-700 dark:text-amber-500">
+        <p className="mt-2 text-xs text-[var(--ops-notice-ink)]">
           These cover only the first {ROW_LIMIT} lines in the range, not the
           whole range - run migration 0022 for true totals.
         </p>
       )}
 
       {error && (
-        <p className="mt-6 text-sm text-red-600">Query error: {error.message}</p>
+        <p className="mt-6 text-sm text-[var(--ops-negative)]">Query error: {error.message}</p>
       )}
 
+      {/* Chart on the left, store split + top products stacked beside it: at
+          the wider page width a full-width chart scaled to ~500px tall. */}
+      <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       {/* --- Sales over time --- */}
-      <div className="mt-10">
+      <div>
         <SectionHeading
           title="Sales over time"
           subtitle="Revenue per trading day (Bali time), against the same number of days immediately before this range."
@@ -860,7 +867,7 @@ export default async function DashboardPage({
                   style={{ backgroundColor: paletteVar("current") }}
                 />
                 <div>
-                  <div className="font-medium text-zinc-700 dark:text-zinc-300">
+                  <div className="font-medium text-zinc-700">
                     This period
                   </div>
                   <div className="text-zinc-400">
@@ -875,7 +882,7 @@ export default async function DashboardPage({
                     style={{ backgroundColor: paletteVar("previous") }}
                   />
                   <div>
-                    <div className="font-medium text-zinc-700 dark:text-zinc-300">
+                    <div className="font-medium text-zinc-700">
                       Previous period
                     </div>
                     <div className="text-zinc-400">
@@ -899,7 +906,7 @@ export default async function DashboardPage({
                     y1={chartY(t)}
                     y2={chartY(t)}
                     stroke="currentColor"
-                    className="text-zinc-200 dark:text-zinc-800"
+                    className="text-zinc-200"
                     strokeWidth={1}
                   />
                   <text
@@ -1011,7 +1018,7 @@ export default async function DashboardPage({
                     {daily.map((d) => (
                       <tr
                         key={d.day}
-                        className="border-t border-zinc-100 dark:border-zinc-800"
+                        className="border-t border-zinc-100"
                       >
                         <td className="px-2 py-1">
                           {dayLabelFormatter.format(new Date(`${d.day}T00:00:00Z`))}
@@ -1031,7 +1038,7 @@ export default async function DashboardPage({
         )}
       </div>
 
-      <div className="mt-10 grid gap-10 lg:grid-cols-2">
+      <div className="space-y-10">
         {/* --- Sales split by store --- */}
         <div>
           <SectionHeading
@@ -1058,7 +1065,7 @@ export default async function DashboardPage({
                         className="h-2.5 w-2.5 shrink-0 rounded-full"
                         style={{ backgroundColor: paletteVar(s.key) }}
                       />
-                      <span className="text-zinc-600 dark:text-zinc-400">
+                      <span className="text-zinc-600">
                         {s.name}
                       </span>
                       <span className="text-zinc-400">
@@ -1102,7 +1109,7 @@ export default async function DashboardPage({
                       {formatRupiahCompact(p.revenue)}
                     </span>
                   </div>
-                  <div className="mt-0.5 h-3 bg-zinc-100 dark:bg-zinc-900">
+                  <div className="mt-0.5 h-3 bg-zinc-100">
                     <div
                       className="h-3"
                       style={{
@@ -1117,6 +1124,7 @@ export default async function DashboardPage({
           )}
         </div>
       </div>
+      </div>
 
       {/* --- Top variants --- */}
       <div className="mt-10">
@@ -1127,9 +1135,9 @@ export default async function DashboardPage({
         {topVariantsResult.error ? (
           <RollupUnavailable message={topVariantsResult.error} />
         ) : (
-          <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+          <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-200">
             <table className="w-full text-sm">
-              <thead className="bg-zinc-50 text-left dark:bg-zinc-900">
+              <thead className="bg-zinc-50 text-left">
                 <tr>
                   <th className="px-3 py-2">#</th>
                   <th className="px-3 py-2">SKU</th>
@@ -1147,7 +1155,7 @@ export default async function DashboardPage({
                 {topVariants.map((v, i) => (
                   <tr
                     key={v.product_id}
-                    className="border-t border-zinc-100 dark:border-zinc-800"
+                    className="border-t border-zinc-100"
                   >
                     <td className="px-3 py-2 text-zinc-400">{i + 1}</td>
                     <td className="px-3 py-2 font-mono text-xs">{v.sku ?? "-"}</td>
@@ -1179,7 +1187,7 @@ export default async function DashboardPage({
           </div>
         )}
         {!hasVariantType && (
-          <p className="mt-2 text-xs text-amber-700 dark:text-amber-500">
+          <p className="mt-2 text-xs text-[var(--ops-notice-ink)]">
             The Type and Attributes columns are empty until migration 0022
             has been run and the next Odoo sync has populated them.
           </p>
@@ -1192,7 +1200,7 @@ export default async function DashboardPage({
           title="Sales lines"
           subtitle={`Most recent first, up to ${ROW_LIMIT} rows.`}
         />
-        <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+        <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-200">
           <SalesLinesTable rows={salesLineRows} />
         </div>
 

@@ -23,9 +23,36 @@ export const CATEGORICAL_PALETTE: PaletteSlot[] = [
   { light: "#e34948", dark: "#e66767" }, // red
 ];
 
-export function paletteSlot(index: number): PaletteSlot {
-  return CATEGORICAL_PALETTE[index % CATEGORICAL_PALETTE.length];
+export function paletteSlot(
+  index: number,
+  palette: PaletteSlot[] = CATEGORICAL_PALETTE,
+): PaletteSlot {
+  return palette[index % palette.length];
 }
+
+/**
+ * ASASI brand chart palette (brand guidelines, Colour page), used on
+ * /operations. Slot order was picked by searching orderings for the best
+ * adjacent-pair separation with scripts/validate_palette.js against the
+ * brand surface (beige #F5F0E2):
+ *
+ * - slots 0-1 are the two-series pair (this period vs previous) and clear
+ *   the colour-blind and normal-vision separation checks;
+ * - the brand palette is deliberately muted, so the generic chroma-floor
+ *   and lightness-band checks flag it by design - and from slot 2 on the
+ *   adjacent separation is weaker, which is why
+ *   every multi-series chart that uses it keeps a labelled legend and a
+ *   table view rather than relying on colour alone;
+ * - /operations is beige-only (no dark theme), so the dark step equals the
+ *   light step; the field stays because paletteCss emits both.
+ */
+export const BRAND_PALETTE: PaletteSlot[] = [
+  { light: "#304221", dark: "#304221" }, // brand green
+  { light: "#B58156", dark: "#B58156" }, // brand copper
+  { light: "#893131", dark: "#893131" }, // brand red
+  { light: "#D3A98C", dark: "#D3A98C" }, // brand tan
+  { light: "#5B5B5B", dark: "#5B5B5B" }, // brand grey
+];
 
 /** CSS custom property names have to be idents, and keys come from data. */
 function safeKey(key: string): string {
@@ -52,10 +79,14 @@ export function paletteCss(
   scopeClass: string,
   keys: string[],
   prefix = "c-",
+  palette: PaletteSlot[] = CATEGORICAL_PALETTE,
 ): string {
   const decls = (mode: "light" | "dark") =>
     keys
-      .map((key, i) => `--${prefix}${safeKey(key)}:${paletteSlot(i)[mode]}`)
+      .map(
+        (key, i) =>
+          `--${prefix}${safeKey(key)}:${paletteSlot(i, palette)[mode]}`,
+      )
       .join(";");
 
   return (

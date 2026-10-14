@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 /**
  * The interactive part of the "Sales over time" chart - everything else
@@ -37,7 +37,11 @@ interface ChartDay {
   previousOrders: number | null;
 }
 
-const TOOLTIP_W = 150;
+// The tooltip box is sized to its text (measured below) rather than a fixed
+// width: the chart scales with the page, and the font's real metrics, not a
+// character-count guess, decide how wide the text is.
+const TOOLTIP_MIN_W = 110;
+const TOOLTIP_PAD_X = 10;
 const TOOLTIP_GAP = 10;
 const TRANSITION = "150ms ease-out";
 
@@ -79,12 +83,23 @@ export function SalesOverTimeChart({
   };
   const leave = () => setHovered(null);
 
+  const textRef = useRef<SVGGElement>(null);
+  const [tooltipW, setTooltipW] = useState(TOOLTIP_MIN_W);
+  useLayoutEffect(() => {
+    const box = textRef.current?.getBBox();
+    if (box) {
+      setTooltipW(
+        Math.max(TOOLTIP_MIN_W, Math.ceil(box.x + box.width + TOOLTIP_PAD_X)),
+      );
+    }
+  }, [displayDay]);
+
   const hasPrevious = displayDay?.previousValueLabel !== null;
   const tooltipRows = hasPrevious ? 2 : 1;
   const tooltipH = 16 + tooltipRows * 15 + 6;
 
   const tooltipX = displayDay
-    ? clamp(displayDay.x - TOOLTIP_W / 2, chartLeft, chartRight - TOOLTIP_W)
+    ? clamp(displayDay.x - tooltipW / 2, chartLeft, chartRight - tooltipW)
     : 0;
   // Sits above whichever series is higher (smaller y) that day, so it
   // never overlaps either line's marker.
@@ -133,7 +148,7 @@ export function SalesOverTimeChart({
               y1={chartTop}
               y2={chartBottom}
               stroke="currentColor"
-              className="text-zinc-300 dark:text-zinc-700"
+              className="text-zinc-300"
               strokeWidth={1}
               strokeDasharray="3 3"
             />
@@ -143,7 +158,7 @@ export function SalesOverTimeChart({
                 cy={displayDay.currentY}
                 r={4}
                 style={{ fill: currentColor }}
-                className="stroke-white dark:stroke-zinc-950"
+                className="stroke-[var(--ops-bg)]"
                 strokeWidth={1.5}
               />
             )}
@@ -153,7 +168,7 @@ export function SalesOverTimeChart({
                 cy={displayDay.previousY}
                 r={4}
                 style={{ fill: previousColor }}
-                className="stroke-white dark:stroke-zinc-950"
+                className="stroke-[var(--ops-bg)]"
                 strokeWidth={1.5}
               />
             )}
@@ -168,52 +183,45 @@ export function SalesOverTimeChart({
             }}
           >
             <rect
-              width={TOOLTIP_W}
+              width={tooltipW}
               height={tooltipH}
-              rx={4}
-              className="fill-zinc-900 dark:fill-zinc-100"
+              className="fill-[#fbf8ef] stroke-zinc-900"
+              strokeWidth={1}
             />
-            <text
-              x={8}
-              y={14}
-              className="fill-zinc-400 text-[8px] uppercase tracking-wide dark:fill-zinc-500"
-            >
-              {displayDay.currentLabel}
-            </text>
-            <circle
-              cx={11}
-              cy={26}
-              r={3}
-              style={{ fill: currentColor }}
-            />
-            <text
-              x={18}
-              y={29}
-              className="fill-white text-[9px] font-medium dark:fill-zinc-900"
-            >
-              {displayDay.currentValueLabel}
-              {displayDay.currentUnits !== null &&
-                ` · ${displayDay.currentUnits} units · ${displayDay.currentOrders} orders`}
-            </text>
-            {hasPrevious && (
-              <>
-                <circle
-                  cx={11}
-                  cy={41}
-                  r={3}
-                  style={{ fill: previousColor }}
-                />
-                <text
-                  x={18}
-                  y={44}
-                  className="fill-zinc-300 text-[9px] dark:fill-zinc-600"
-                >
-                  {displayDay.previousLabel}: {displayDay.previousValueLabel}
-                  {displayDay.previousUnits !== null &&
-                    ` · ${displayDay.previousUnits} units`}
-                </text>
-              </>
-            )}
+            <g ref={textRef}>
+              <text
+                x={8}
+                y={14}
+                className="fill-zinc-500 text-[8px] uppercase tracking-wide"
+              >
+                {displayDay.currentLabel}
+              </text>
+              <circle cx={11} cy={26} r={3} style={{ fill: currentColor }} />
+              <text
+                x={18}
+                y={29}
+                className="fill-zinc-900 text-[9px] font-medium"
+              >
+                {displayDay.currentValueLabel}
+                {displayDay.currentUnits !== null &&
+                  ` · ${displayDay.currentUnits} units · ${displayDay.currentOrders} orders`}
+              </text>
+              {hasPrevious && (
+                <>
+                  <circle
+                    cx={11}
+                    cy={41}
+                    r={3}
+                    style={{ fill: previousColor }}
+                  />
+                  <text x={18} y={44} className="fill-zinc-600 text-[9px]">
+                    {displayDay.previousLabel}: {displayDay.previousValueLabel}
+                    {displayDay.previousUnits !== null &&
+                      ` · ${displayDay.previousUnits} units`}
+                  </text>
+                </>
+              )}
+            </g>
           </g>
         </g>
       )}
