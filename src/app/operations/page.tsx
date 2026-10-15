@@ -5,6 +5,8 @@ import { BRAND_PALETTE, paletteCss, paletteVar } from "@/lib/viz/palette";
 import { SalesOverTimeChart } from "./sales-over-time-chart";
 import { SalesLinesTable, type SalesLineRow } from "./sales-lines-table";
 import { FilterFields, type ProductFamily } from "./filter-fields";
+import { SyncHistoryButton } from "./sync-history-button";
+import { buildStoreGroups } from "./store-groups";
 
 export const dynamic = "force-dynamic";
 // Applies to this route's Server Actions too (e.g. the "Sync now" button) -
@@ -327,7 +329,13 @@ export default async function DashboardPage({
   const defaults = defaultDateRange();
   const from = params.from || defaults.from;
   const to = params.to || defaults.to;
-  const storeIds = toArray(params.store).map(Number).filter(Number.isFinite);
+  // A store checkbox stands for a whole physical store, which can be several
+  // Odoo registers (see store-groups.ts), so its value is a comma-joined id
+  // list; a plain single id (an older bookmarked URL) parses the same way.
+  const storeIds = toArray(params.store)
+    .flatMap((v) => v.split(","))
+    .map(Number)
+    .filter(Number.isFinite);
   const colors = toArray(params.color);
   const sizes = toArray(params.size);
   const types = toArray(params.type);
@@ -421,9 +429,17 @@ export default async function DashboardPage({
     rollup<DailyRow>(supabase.rpc("ops_sales_daily", prevRollupArgs)),
   ]);
 
-  const selectableStores = (stores ?? []).filter(
-    (s) => !HIDDEN_STORE_NAMES.has(s.name.trim().toLowerCase()),
+  const selectableStores = buildStoreGroups(
+    (stores ?? []).filter(
+      (s) => !HIDDEN_STORE_NAMES.has(s.name.trim().toLowerCase()),
+    ),
   );
+  // Every register (hidden ones too) -> its physical store, so the pie and
+  // the table fold an older and newer register together under one label.
+  const storeGroupByStoreId = new Map<number, { key: string; label: string }>();
+  for (const g of buildStoreGroups(stores ?? [])) {
+    for (const id of g.ids) storeGroupByStoreId.set(id, g);
+  }
   // One entry per product family (Odoo product template - products.name is
   // the template name, shared by all of its colour/size variants), with the
   // colours and sizes that family actually comes in. Loyalty "Redeem ..."
@@ -510,7 +526,12 @@ export default async function DashboardPage({
       ? orderDateFormatter.format(new Date(line.orders.order_date))
       : "-",
     orderRef: line.orders?.pos_reference ?? "-",
-    store: line.orders?.stores?.name ?? "-",
+    store:
+      (line.orders?.stores
+        ? storeGroupByStoreId.get(line.orders.stores.id)?.label
+        : undefined) ??
+      line.orders?.stores?.name ??
+      "-",
     sku: line.products?.sku ?? "-",
     product: line.products?.name ?? "-",
     category: line.products?.product_categories?.name ?? "-",
@@ -649,12 +670,26 @@ export default async function DashboardPage({
     .filter(({ i }) => i % xLabelEvery === 0);
 
   // --- Store split pie -------------------------------------------------
-  const storeRollup = byStoreResult.rows.map((s) => ({
-    key: String(s.store_id ?? "unassigned"),
-    name: s.store_name,
-    revenue: Number(s.revenue),
-    units: Number(s.units),
-  }));
+  const storeRollupMap = new Map<
+    string,
+    { key: string; name: string; revenue: number; units: number }
+  >();
+  for (const s of byStoreResult.rows) {
+    const group = s.store_id != null ? storeGroupByStoreId.get(s.store_id) : null;
+    const key = group?.key ?? String(s.store_id ?? "unassigned");
+    const entry = storeRollupMap.get(key) ?? {
+      key,
+      name: group?.label ?? s.store_name,
+      revenue: 0,
+      units: 0,
+    };
+    entry.revenue += Number(s.revenue);
+    entry.units += Number(s.units);
+    storeRollupMap.set(key, entry);
+  }
+  const storeRollup = [...storeRollupMap.values()].sort(
+    (a, b) => b.revenue - a.revenue,
+  );
   const pieStores = storeRollup.filter((s) => s.revenue > 0);
   const pieExcluded = storeRollup.length - pieStores.length;
   const pieTotal = pieStores.reduce((sum, s) => sum + s.revenue, 0);
@@ -762,8 +797,14 @@ export default async function DashboardPage({
         it ever misses a few days in a row (a deploy, Odoo downtime), those
         days stay a gap in the chart/table below until backfilled. If you
         spot a gap, raise &quot;Days back&quot; enough to cover it (back to
-        the last date you know was synced) and click Sync now.
+        the last date you know was synced) and click Sync now. To load
+        everything since the very first sale recorded in Odoo, use
+        &quot;Sync all history&quot; - it works through the history in
+        two-week windows, so keep the page open until it says Done.
       </p>
+      <div className="mt-2">
+        <SyncHistoryButton />
+      </div>
 
       <form
         method="get"
@@ -783,17 +824,17 @@ export default async function DashboardPage({
           <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-2">
             {selectableStores.map((s) => (
               <label
-                key={s.id}
+                key={s.key}
                 className="flex items-center gap-2 text-sm text-zinc-700"
               >
                 <input
                   type="checkbox"
                   name="store"
-                  value={s.id}
-                  defaultChecked={storeIds.includes(s.id)}
+                  value={s.ids.join(",")}
+                  defaultChecked={s.ids.some((id) => storeIds.includes(id))}
                   className="h-4 w-4 rounded border-zinc-300"
                 />
-                {s.name}
+                {s.label}
               </label>
             ))}
             {!selectableStores.length && (

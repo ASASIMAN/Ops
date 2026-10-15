@@ -1,7 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { runOdooSync } from "@/lib/odoo/sync";
+import { runOdooSync, runOdooSyncRange } from "@/lib/odoo/sync";
+import { fetchEarliestOrderDate } from "@/lib/odoo/sales";
 
 // The daily cron only pulls the last 2 days each run (see vercel.json) -
 // if it ever misses running for longer than that (a deploy, Odoo
@@ -33,4 +34,74 @@ export async function syncNowAction(formData: FormData) {
   }
 
   redirect(returnTo);
+}
+
+// A full-history load is split into windows this long, one server action
+// call each, so every call stays well inside the page's 60s limit however
+// many months of sales exist.
+const HISTORY_CHUNK_DAYS = 14;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export type HistoryPlan =
+  | { ok: true; chunks: { from: string; to: string }[]; firstDate: string }
+  | { ok: false; error: string };
+
+/**
+ * Finds the first POS order in Odoo and lays out the date windows needed to
+ * load everything from then until now. Nothing is written here.
+ */
+export async function planHistorySyncAction(): Promise<HistoryPlan> {
+  try {
+    const earliest = await fetchEarliestOrderDate();
+    if (!earliest) return { ok: false, error: "Odoo has no POS orders yet." };
+
+    const now = new Date();
+    const start = new Date(
+      Date.UTC(
+        earliest.getUTCFullYear(),
+        earliest.getUTCMonth(),
+        earliest.getUTCDate(),
+      ),
+    );
+    const chunks: { from: string; to: string }[] = [];
+    for (let t = start.getTime(); t < now.getTime(); t += HISTORY_CHUNK_DAYS * DAY_MS) {
+      chunks.push({
+        from: new Date(t).toISOString(),
+        to: new Date(Math.min(t + HISTORY_CHUNK_DAYS * DAY_MS, now.getTime())).toISOString(),
+      });
+    }
+    return { ok: true, chunks, firstDate: start.toISOString().slice(0, 10) };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+/** Syncs one window from a history plan. The first one also refreshes the catalogue. */
+export async function syncHistoryChunkAction(
+  from: string,
+  to: string,
+  refreshCatalog: boolean,
+): Promise<{ ok: true; ordersSynced: number } | { ok: false; error: string }> {
+  const dateFrom = new Date(from);
+  const dateTo = new Date(to);
+  if (
+    !Number.isFinite(dateFrom.getTime()) ||
+    !Number.isFinite(dateTo.getTime()) ||
+    dateTo <= dateFrom ||
+    dateTo.getTime() - dateFrom.getTime() > 31 * DAY_MS
+  ) {
+    return { ok: false, error: "Invalid date window." };
+  }
+  try {
+    const result = await runOdooSyncRange(dateFrom, dateTo, { refreshCatalog });
+    return { ok: true, ordersSynced: result.ordersSynced };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
 }

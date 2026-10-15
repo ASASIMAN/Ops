@@ -200,9 +200,12 @@ instance, since I don't have connection details):
   synced — only sales are)
 - Forecasting formulas on top of the trend data
 - Pagination past 1000 rows on the line-level table
-- A historical backfill strategy beyond the rolling daily sync (needs to
-  run in date-chunked batches to stay under the 60s function limit - not
-  built yet, will design once we know your order volume)
+- A scheduled historical backfill. A one-off full load exists: the
+  **Sync all history** button on `/operations` finds the first POS order in
+  Odoo and loads everything since in 14-day windows (one server action call
+  each, so no single request nears the 60s limit). It is driven from the
+  browser, so the page must stay open until it reports Done; re-running is
+  safe (all writes are upserts).
 
 ### Running the SQL migrations
 

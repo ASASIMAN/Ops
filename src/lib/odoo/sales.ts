@@ -242,6 +242,18 @@ export async function fetchOrders(dateFromIso: string, dateToIso: string) {
   }));
 }
 
+/** When the first POS order was recorded (UTC), or null if there are none. */
+export async function fetchEarliestOrderDate(): Promise<Date | null> {
+  const [first] = await searchRead<{ date_order: string }>(
+    "pos.order",
+    [],
+    ["date_order"],
+    { limit: 1, order: "date_order asc" },
+  );
+  // Odoo datetimes are "YYYY-MM-DD HH:MM:SS" in UTC with no zone marker.
+  return first ? new Date(`${first.date_order.replace(" ", "T")}Z`) : null;
+}
+
 export interface OdooPosOrderLine {
   id: number;
   order_id: [number, string];
