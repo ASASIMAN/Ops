@@ -17,10 +17,16 @@ const TOP_VARIANTS_LIMIT = 20;
 const TOP_PRODUCTS_LIMIT = 10;
 
 // Stores hidden from the filter picker. NSA isn't a storefront anyone
-// reviews sales for. This only removes it as something you can filter *by* -
-// its rows still count towards an unfiltered total, exactly as before. Say
-// the word if it should be excluded from the numbers as well.
-const HIDDEN_STORE_NAMES = new Set(["nsa"]);
+// reviews sales for, and "Clothes Shop" is Odoo's demo register, not a real
+// store. This only removes them as something you can filter *by* - their
+// rows still count towards an unfiltered total, exactly as before.
+//
+// The picker deliberately does NOT filter on stores.active: migration 0006
+// deactivated the older-style registers ("ASASI Ubud", "ASASI Canggu", ...)
+// when they had no sales, but they've since been used, and an inactive store
+// can't be picked even though its orders are in the numbers. Hiding by name
+// keeps every real register selectable.
+const HIDDEN_STORE_NAMES = new Set(["nsa", "clothes shop"]);
 
 // The stores are in Bali (WITA, UTC+8). Date filters and daily buckets are
 // both anchored there, so "3 Sep" means the trading day the staff worked,
@@ -386,7 +392,7 @@ export default async function DashboardPage({
     prevTotalsResult,
     prevDailyResult,
   ] = await Promise.all([
-    supabase.from("stores").select("id, name").eq("active", true).order("name"),
+    supabase.from("stores").select("id, name").order("name"),
     fetchProductFacets(supabase),
     supabase
       .from("sync_runs")
