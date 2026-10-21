@@ -429,10 +429,86 @@ useful date range, so unlike the sales sync there's no `days` parameter -
 it always syncs the current position). Shares the `sync_runs` table with
 the sales sync, distinguished by a new `sync_type` column.
 
+### Lead times (/forecast/lead-times)
+
+A separate, more precise lead-time system than `vendor_reorder_settings`
+above - per-product (not per-SKU; vendor lead times are quoted per
+style, colour/size variants share one row), with a full ETA priority
+chain and real purchase-order history to measure against. New schema in
+`supabase/migrations/0027_lead_times.sql` and `0028_seed_purchase_orders.sql`
+(seeds the 16 real POs / 317 lines supplied in `po_lines_clean.csv`):
+
+- `lead_time_products` - the canonical product identity this subsystem
+  keys off (NOT Odoo's product_id).
+- `lead_time_name_mappings` - the **only** place a raw name (from a PO
+  sheet or Odoo) becomes a `lead_time_products` row. Nothing here ever
+  splits a name on `" - "` to guess colour vs. variant - that separator
+  means different things in different names ("Linen Pants - Black" vs.
+  "Origin Shirt - Long Sleeve"), so every raw name is mapped explicitly.
+  An importer creates a new 1:1 mapping (never a merge) for a name it
+  hasn't seen, flagged `auto_created` for a human to confirm.
+- `lead_times` - the editable table the brief asked for: product,
+  vendor (nullable), min/max days, source (`vendor estimate` /
+  `measured` / `manual`), note, plus `raw_text` for audit against the
+  normalized number.
+- `lead_time_settings` - one editable row: the late-end buffer applied
+  to single-point estimates, the global default range, the minimum PO
+  count before "measured" activates, and the two assumptions the brief
+  asked to be visible/editable rather than baked in - clock start
+  (currently only "PO date" is implemented) and whether an estimate
+  covers the first delivery/batch only or the whole PO.
+- `purchase_orders` / `purchase_order_lines` - real PO history, for
+  measuring actual lead time once delivery dates exist.
+  `purchase_orders.manual_eta_date` is the highest-priority override.
+
+**Text normalization** (`src/lib/leadtime/normalize.ts`): parses mixed
+English/Indonesian lead-time text - "10 days" = 10, "1 Month"/"1 Bulan" =
+30, "2-3 Months" = 60-90, "4-6 minggu" = 28-42, etc. Unparseable text is
+reported back to whoever imports it, never guessed.
+
+**ETA priority** (`src/lib/leadtime/resolve.ts`), most specific first:
+manual ETA on the PO → measured lead time (once a product has ≥
+`measured_min_po_count` POs with real delivery dates - currently **0**
+for every product, since the supplied PO export has no delivery dates
+yet) → this product's row in `lead_times` → the global default range.
+A single-point `lead_times` estimate gets the configurable late-end
+buffer (default +25%) applied to its high end for alerting; a range
+estimate or a measured range doesn't need one.
+
+**Importing vendor estimates**: `/forecast/lead-times` has a CSV upload
+(`src/lib/adapters/lead-time-estimates.ts` + `src/lib/leadtime/ingest.ts`).
+**Not .xlsx** - the only npm package that parses `.xlsx` (`xlsx`/SheetJS)
+carries two unpatched high-severity CVEs (prototype pollution, ReDoS)
+with no fix available, so it wasn't added as a dependency; export
+`Product_estimation_Vendor.xlsx` to CSV first, same as the existing Meta
+Ads importer already requires.
+
+**Not yet wired into restock alerts** (`/forecast`'s §1): the restock
+calc still reads `vendor_reorder_settings`/`FALLBACK_LEAD_TIME_DAYS`
+(below), not this new system. Doing so needs Odoo product names/template
+ids mapped into `lead_time_name_mappings` (the `odoo_template_id` column
+exists for exactly this) - not done yet because no Odoo product-name
+data has been imported here to map from. Once that mapping exists, swap
+`src/app/forecast/page.tsx`'s restock section to call
+`resolveProductLeadTime`/`resolveEtaForPo` instead.
+
 **Flagged assumptions / open items** - none of these are silently
 defaulted; each is called out where it's used in code and in the UI:
-- **Vendor lead time per SKU** isn't loaded yet (the business will send
-  it) - `vendor_reorder_settings.lead_time_days` is null until then, and
+- **The actual vendor estimates haven't been imported** -
+  `Product_estimation_Vendor.xlsx` wasn't attached when this was built;
+  `lead_times` is empty until it's exported to CSV and uploaded via
+  `/forecast/lead-times`.
+- **Zero measured lead times yet** - the supplied PO export has no
+  `b1_date`/`b2_date`/`b3_date` values at all, so "measured" never
+  activates today. The machinery is ready; it starts working the moment
+  real delivery dates exist.
+- **"Shadow - Long Sleeve" vs. "Shadow Shirt"** (PO 135 vs. POs
+  146/148/150, both Black-only) may be the same garment renamed over
+  time - left as two separate products, flagged in
+  `lead_time_name_mappings`, pending a human confirming whether to merge.
+- **Vendor lead time per SKU** (the older, coarser mechanism, still what
+  restock alerts actually use) isn't loaded yet -
+  `vendor_reorder_settings.lead_time_days` is null until then, and
   the restock calc falls back to a placeholder
   (`FALLBACK_LEAD_TIME_DAYS = 14` days, `src/lib/forecast/restock.ts`),
   visibly flagged with `*` on every affected row.

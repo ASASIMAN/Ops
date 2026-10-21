@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { syncStockNowAction } from "./actions";
 import { paletteCss } from "@/lib/viz/palette";
@@ -585,15 +586,20 @@ export default async function ForecastPage({
             Restock alerts, revenue &amp; demand forecasts, and accuracy tracking - built on the same synced Odoo sales data as Operations.
           </p>
         </div>
-        <form action={syncStockNowAction}>
-          <input type="hidden" name="returnTo" value={returnTo} />
-          <button
-            type="submit"
-            className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium hover:border-zinc-500 dark:border-zinc-700 dark:hover:border-zinc-500"
-          >
-            Sync stock now
-          </button>
-        </form>
+        <div className="flex items-center gap-3">
+          <Link href="/forecast/lead-times" className="text-xs text-zinc-500 hover:underline">
+            Lead times →
+          </Link>
+          <form action={syncStockNowAction}>
+            <input type="hidden" name="returnTo" value={returnTo} />
+            <button
+              type="submit"
+              className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium hover:border-zinc-500 dark:border-zinc-700 dark:hover:border-zinc-500"
+            >
+              Sync stock now
+            </button>
+          </form>
+        </div>
       </div>
 
       <p className="mt-2 text-xs text-zinc-500">
