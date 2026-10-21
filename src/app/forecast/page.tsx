@@ -1,99 +1,52 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { syncStockNowAction } from "./actions";
-import { paletteCss } from "@/lib/viz/palette";
+import { forecast } from "@/lib/forecast/engine";
+import { hasForecastSchema, fetchStockLevels } from "@/lib/forecast/data";
+import { hasLeadTimeSchema, fetchLeadTimeSettings, fetchEstimatesByProduct, fetchMeasuredDeliveriesByProduct } from "@/lib/leadtime/data";
+import { resolveProductLeadTime, type LeadTimeRange } from "@/lib/leadtime/resolve";
+import {
+  hasPoPlanningSchema,
+  fetchStyleOptions,
+  fetchStyleVariants,
+  fetchStyleMonthlyNetUnits,
+  fetchStyleDailyNetUnits,
+  computeMonthToDate,
+  fetchAllocationShares,
+  fetchStockoutDays,
+  adjustForStockouts,
+  fetchUpliftFactors,
+  upliftOverlapFraction,
+  fetchForecastEvents,
+} from "@/lib/forecast/style";
+import {
+  fetchLinkedLeadTimeProductId,
+  fetchOpenPoLines,
+  computePlanner,
+  computeWhatIf,
+  buildPoGrid,
+} from "@/lib/forecast/planner";
 import { niceStep, linePath, bandPath, type Point } from "@/lib/viz/chart-utils";
-import {
-  forecast,
-  type Period,
-  type ForecastResult,
-} from "@/lib/forecast/engine";
-import {
-  demandStatsFromDaily,
-  computeReorder,
-  combinedRisk,
-  suggestedTransferSplit,
-  FALLBACK_LEAD_TIME_DAYS,
-  FALLBACK_TRANSFER_LEAD_TIME_DAYS,
-  type CombinedRisk,
-} from "@/lib/forecast/restock";
-import {
-  fetchPeriodDemand,
-  fetchStockLevels,
-  fetchReorderSettings,
-  fetchProductLookup,
-  reorderSettingsFor,
-  hasForecastSchema,
-} from "@/lib/forecast/data";
-import { totalSeries, groupSeries, type DemandRow } from "@/lib/forecast/aggregate";
 
 export const dynamic = "force-dynamic";
-// Same reasoning as /operations: several sequential Supabase calls (and,
-// via the "Sync stock now" button, several Odoo RPCs) need more than the
-// platform's short default duration.
 export const maxDuration = 60;
 
-const HISTORY_MONTHS = 12;
-const FORECAST_HORIZON_MONTHS = 3;
-const RESTOCK_WINDOW_DAYS = 90;
-const TOP_N_DEFAULT = 10;
-const SELLER_RANGE_DAYS_DEFAULT = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HISTORY_MONTHS_SHOWN = 12;
+const HISTORY_MONTHS_FOR_YOY_CHECK = 13;
 
-const HIDDEN_STORE_NAMES = new Set(["nsa"]); // pre-opening store - same exclusion as /operations
-
-const currencyFormatter = new Intl.NumberFormat("id-ID", {
-  style: "currency",
-  currency: "IDR",
-  maximumFractionDigits: 0,
-});
 const unitFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
-const pctFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+const monthLabelFormatter = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", month: "short", year: "2-digit" });
 
-const monthLabelFormatter = new Intl.DateTimeFormat("en-GB", {
-  timeZone: "UTC",
-  month: "short",
-  year: "2-digit",
-});
-
-function nowIso() {
-  return new Date().toISOString();
+function monthStart(date: Date, offsetMonths: number): string {
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + offsetMonths, 1));
+  return d.toISOString().slice(0, 10);
 }
-function monthsAgoIso(n: number) {
-  return new Date(new Date().getTime() - n * 30 * DAY_MS).toISOString();
+function addDaysIso(iso: string, days: number): string {
+  return new Date(new Date(`${iso}T00:00:00Z`).getTime() + days * DAY_MS).toISOString().slice(0, 10);
 }
-function daysAgoIso(n: number) {
-  return new Date(new Date().getTime() - n * DAY_MS).toISOString();
-}
-function isoDay(dateStr: string) {
-  return `${dateStr}T00:00:00Z`;
-}
-
-/** Unwraps a Supabase call into a typed row array, matching /operations' `rollup<T>` so an un-migrated database degrades with a message instead of throwing. */
-async function unwrap<T>(
-  call: PromiseLike<{ data: unknown; error: { message: string } | null }>,
-): Promise<{ rows: T[]; error: string | null }> {
-  const { data, error } = await call;
-  if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as T[], error: null };
-}
-
-interface SearchParams {
-  store?: string;
-  months?: string;
-  horizon?: string;
-  topN?: string;
-  from?: string;
-  to?: string;
-}
-
-function SectionHeading({ title, subtitle }: { title: string; subtitle?: string }) {
-  return (
-    <div>
-      <h2 className="text-lg font-medium">{title}</h2>
-      {subtitle && <p className="mt-0.5 text-xs text-zinc-500">{subtitle}</p>}
-    </div>
-  );
+function daysInMonthOf(monthIso: string): number {
+  const d = new Date(`${monthIso}T00:00:00Z`);
+  return new Date(d.getUTCFullYear(), d.getUTCMonth() + 1, 0).getDate();
 }
 
 function AssumptionNote({ children }: { children: React.ReactNode }) {
@@ -104,129 +57,19 @@ function AssumptionNote({ children }: { children: React.ReactNode }) {
   );
 }
 
-function RiskBadge({ risk }: { risk: CombinedRisk }) {
-  const styles: Record<CombinedRisk, string> = {
-    red: "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400",
-    yellow: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400",
-    green: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400",
-  };
-  const labels: Record<CombinedRisk, string> = { red: "Both low", yellow: "One low", green: "OK" };
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${styles[risk]}`}>
-      {labels[risk]}
-    </span>
-  );
+interface SearchParams {
+  style?: string;
+  store?: string;
+  color?: string;
+  size?: string;
+  coverageMonths?: string;
+  serviceLevel?: string;
+  adjustStockouts?: string;
+  yoyOverlay?: string;
+  whatIfQty?: string;
 }
 
-/** Compares the first vs. second half of a series' fitted level to call a plain rising/falling/flat direction - reuses the same engine fit rather than a separate slope calc. */
-function trendDirection(series: Period[]): "rising" | "falling" | "flat" {
-  if (series.length < 2) return "flat";
-  const result = forecast(series, { horizon: 0 });
-  const mid = Math.floor(result.fitted.length / 2);
-  const firstHalf = result.fitted.slice(0, Math.max(mid, 1));
-  const secondHalf = result.fitted.slice(mid);
-  const avg = (pts: typeof result.fitted) =>
-    pts.reduce((s, p) => s + p.level, 0) / (pts.length || 1);
-  const a = avg(firstHalf);
-  const b = avg(secondHalf);
-  if (a === 0) return b > 0 ? "rising" : "flat";
-  const change = (b - a) / Math.abs(a);
-  if (change > 0.1) return "rising";
-  if (change < -0.1) return "falling";
-  return "flat";
-}
-
-function TrendArrow({ direction }: { direction: "rising" | "falling" | "flat" }) {
-  if (direction === "rising") return <span className="text-emerald-600 dark:text-emerald-400">▲</span>;
-  if (direction === "falling") return <span className="text-red-600 dark:text-red-400">▼</span>;
-  return <span className="text-zinc-400">–</span>;
-}
-
-const CHART_W = 720;
-const CHART_H = 220;
-const PAD_L = 56;
-const PAD_R = 10;
-const PAD_T = 10;
-const PAD_B = 22;
-
-/** One shared line+band chart for actual/fitted history plus an expected/low/high forecast - used by revenue (§2), demand (§3), and accuracy (§5). */
-function ForecastChart({
-  fitted,
-  forecastPoints,
-  valueLabel,
-  formatValue,
-  ariaLabel,
-}: {
-  fitted: { date: string; actual: number; level: number }[];
-  forecastPoints: { date: string; expected: number; low: number; high: number }[];
-  valueLabel: string;
-  formatValue: (v: number) => string;
-  ariaLabel: string;
-}) {
-  const allDates = [...fitted.map((f) => f.date), ...forecastPoints.map((f) => f.date)];
-  if (allDates.length < 2) {
-    return <p className="mt-2 text-xs text-zinc-500">Not enough history yet to chart {valueLabel}.</p>;
-  }
-
-  const maxValue = Math.max(
-    1,
-    ...fitted.map((f) => f.actual),
-    ...forecastPoints.map((f) => f.high),
-  );
-  const step = niceStep(maxValue / 4);
-  const yMax = step * 5;
-  const plotW = CHART_W - PAD_L - PAD_R;
-  const plotH = CHART_H - PAD_T - PAD_B;
-
-  const xFor = (i: number) => PAD_L + (allDates.length <= 1 ? 0 : (i / (allDates.length - 1)) * plotW);
-  const yFor = (v: number) => PAD_T + plotH - (Math.min(v, yMax) / yMax) * plotH;
-
-  const actualPoints: Point[] = fitted.map((f, i) => ({ x: xFor(i), y: yFor(f.actual) }));
-  const levelPoints: Point[] = fitted.map((f, i) => ({ x: xFor(i), y: yFor(f.level) }));
-  const forecastOffset = fitted.length - 1; // forecast line starts where the fitted trend line ends
-  const expectedPoints: Point[] = [
-    { x: xFor(forecastOffset), y: yFor(fitted[fitted.length - 1]?.level ?? 0) },
-    ...forecastPoints.map((f, i) => ({ x: xFor(forecastOffset + 1 + i), y: yFor(f.expected) })),
-  ];
-  const bandTop: Point[] = [
-    { x: xFor(forecastOffset), y: yFor(fitted[fitted.length - 1]?.level ?? 0) },
-    ...forecastPoints.map((f, i) => ({ x: xFor(forecastOffset + 1 + i), y: yFor(f.high) })),
-  ];
-  const bandBottom: Point[] = [
-    { x: xFor(forecastOffset), y: yFor(fitted[fitted.length - 1]?.level ?? 0) },
-    ...forecastPoints.map((f, i) => ({ x: xFor(forecastOffset + 1 + i), y: yFor(f.low) })),
-  ];
-
-  const ticks = Array.from({ length: 5 }, (_, i) => step * (i + 1));
-  const xLabels = allDates.filter((_, i) => i % Math.ceil(allDates.length / 8 || 1) === 0);
-
-  return (
-    <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} className="mt-3 h-auto w-full" role="img" aria-label={ariaLabel}>
-      {ticks.map((t) => (
-        <g key={t}>
-          <line x1={PAD_L} x2={CHART_W - PAD_R} y1={yFor(t)} y2={yFor(t)} stroke="currentColor" className="text-zinc-200 dark:text-zinc-800" strokeWidth={1} />
-          <text x={PAD_L - 6} y={yFor(t) + 3} textAnchor="end" className="fill-zinc-400 text-[9px]">
-            {formatValue(t)}
-          </text>
-        </g>
-      ))}
-      <path d={bandPath(bandTop, bandBottom)} className="fill-zinc-300/40 dark:fill-zinc-600/30" />
-      <path d={linePath(actualPoints)} fill="none" stroke="currentColor" className="text-zinc-400 dark:text-zinc-600" strokeWidth={1.5} />
-      <path d={linePath(levelPoints)} fill="none" stroke="currentColor" className="text-zinc-800 dark:text-zinc-200" strokeWidth={2} />
-      <path d={linePath(expectedPoints)} fill="none" strokeDasharray="4 3" stroke="currentColor" className="text-zinc-800 dark:text-zinc-200" strokeWidth={2} />
-      {xLabels.map((d) => {
-        const i = allDates.indexOf(d);
-        return (
-          <text key={d} x={xFor(i)} y={CHART_H - PAD_B + 14} textAnchor="middle" className="fill-zinc-400 text-[9px]">
-            {monthLabelFormatter.format(new Date(isoDay(d)))}
-          </text>
-        );
-      })}
-    </svg>
-  );
-}
-
-export default async function ForecastPage({
+export default async function ForecastChartPage({
   searchParams,
 }: {
   searchParams: Promise<SearchParams>;
@@ -234,10 +77,8 @@ export default async function ForecastPage({
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return (
       <div className="mx-auto max-w-2xl px-6 py-16">
-        <h1 className="text-2xl font-semibold tracking-tight">Forecasting</h1>
-        <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-          Not set up yet - SUPABASE_SERVICE_ROLE_KEY is missing.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight">PO Planning Chart</h1>
+        <p className="mt-2 text-zinc-600 dark:text-zinc-400">Not set up yet - SUPABASE_SERVICE_ROLE_KEY is missing.</p>
       </div>
     );
   }
@@ -245,716 +86,629 @@ export default async function ForecastPage({
   const params = await searchParams;
   const supabase = createAdminClient();
 
-  const schemaOk = await hasForecastSchema(supabase);
-  if (!schemaOk) {
+  const [forecastSchemaOk, leadTimeSchemaOk, poPlanningSchemaOk] = await Promise.all([
+    hasForecastSchema(supabase),
+    hasLeadTimeSchema(supabase),
+    hasPoPlanningSchema(supabase),
+  ]);
+  if (!forecastSchemaOk) {
     return (
       <div className="mx-auto max-w-2xl px-6 py-16">
-        <h1 className="text-2xl font-semibold tracking-tight">Forecasting</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">PO Planning Chart</h1>
         <AssumptionNote>
-          Not shown yet - run{" "}
-          <code>supabase/migrations/0023_forecast_inventory.sql</code> in the
-          Supabase SQL editor, then sync stock (Odoo) before this page has
-          anything to show.
+          Not shown yet - run <code>supabase/migrations/0023_forecast_inventory.sql</code> and{" "}
+          <code>0029_po_planning.sql</code> in the Supabase SQL editor first.
         </AssumptionNote>
       </div>
     );
   }
 
-  const months = Math.max(3, Number(params.months) || HISTORY_MONTHS);
-  const horizon = Math.max(1, Number(params.horizon) || FORECAST_HORIZON_MONTHS);
-  const topN = Math.max(1, Number(params.topN) || TOP_N_DEFAULT);
-  const selectedStoreId = params.store && params.store !== "all" ? Number(params.store) : null;
-
-  const to = params.to || new Date().toISOString().slice(0, 10);
-  const from = params.from || new Date(new Date().getTime() - SELLER_RANGE_DAYS_DEFAULT * DAY_MS).toISOString().slice(0, 10);
-  const sellerFromIso = isoDay(from);
-  const sellerToIso = isoDay(new Date(new Date(isoDay(to)).getTime() + DAY_MS).toISOString().slice(0, 10));
-
-  const returnTo = `/forecast${new URLSearchParams(
-    Object.entries(params).filter(([, v]) => v) as [string, string][],
-  ).toString() ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString()}` : ""}`;
-
-  const [
-    { data: storeRows },
-    { data: lastSalesSync },
-    { data: lastStockSync },
-    monthlyDemand,
-    restockDailyDemand,
-    sellerRangeDemand,
-    stockLevelsResult,
-    reorderSettings,
-    productLookup,
-    topVariantsResult,
-  ] = await Promise.all([
-    supabase.from("stores").select("id, name").eq("active", true).order("name"),
-    supabase.from("sync_runs").select("status, started_at").eq("sync_type", "sales").order("started_at", { ascending: false }).limit(1).maybeSingle(),
-    supabase.from("sync_runs").select("status, started_at").eq("sync_type", "stock").order("started_at", { ascending: false }).limit(1).maybeSingle(),
-    fetchPeriodDemand(supabase, {
-      from: monthsAgoIso(months),
-      to: nowIso(),
-      bucket: "month",
-      storeIds: selectedStoreId ? [selectedStoreId] : null,
-    }),
-    // Restock (§1) always looks at every store's own stock regardless of
-    // the page's store filter - the vendor/transfer alerts are about the
-    // physical stock network, not a single store's view of it.
-    fetchPeriodDemand(supabase, { from: daysAgoIso(RESTOCK_WINDOW_DAYS), to: nowIso(), bucket: "day", storeIds: null }),
-    fetchPeriodDemand(supabase, {
-      from: sellerFromIso,
-      to: sellerToIso,
-      bucket: "day",
-      storeIds: selectedStoreId ? [selectedStoreId] : null,
-    }),
-    fetchStockLevels(supabase),
-    fetchReorderSettings(supabase),
-    fetchProductLookup(supabase),
-    unwrap<{
-      product_id: number;
-      product_name: string;
-      sku: string | null;
-      category_name: string | null;
-      units: number;
-      revenue: number;
-    }>(
-      supabase.rpc("ops_top_variants", {
-        p_from: sellerFromIso,
-        p_to: sellerToIso,
-        p_store_ids: selectedStoreId ? [selectedStoreId] : null,
-        p_colors: null,
-        p_sizes: null,
-        p_types: null,
-        p_limit: 100000, // effectively unlimited at this data volume - need the full ranked list to read off both ends (top *and* bottom sellers)
-      }),
-    ),
-  ]);
-
+  const HIDDEN_STORE_NAMES = new Set(["nsa"]); // pre-opening store - same exclusion as /operations and /forecast/overview
+  const { data: storeRows } = await supabase.from("stores").select("id, name").eq("active", true).order("name");
   const stores = (storeRows ?? []).filter((s) => !HIDDEN_STORE_NAMES.has(s.name.trim().toLowerCase()));
-  const storesById = new Map(stores.map((s) => [s.id, s.name]));
 
-  // ---------------------------------------------------------------------
-  // §1 Restock timing & quantity (two-tier)
-  // ---------------------------------------------------------------------
-  const officeQtyByProduct = new Map<number, number>();
-  const storeQtyByProductThenStore = new Map<number, Map<number, number>>();
-  for (const r of stockLevelsResult.rows) {
-    if (r.kind === "office") {
-      officeQtyByProduct.set(r.productId, (officeQtyByProduct.get(r.productId) ?? 0) + r.qty);
-    } else if (r.storeId != null) {
-      if (!storeQtyByProductThenStore.has(r.productId)) storeQtyByProductThenStore.set(r.productId, new Map());
-      const m = storeQtyByProductThenStore.get(r.productId)!;
-      m.set(r.storeId, (m.get(r.storeId) ?? 0) + r.qty);
-    }
-  }
+  const styleOptions = await fetchStyleOptions(supabase);
+  const selectedTemplateId = params.style ? Number(params.style) : styleOptions[0]?.templateId;
 
-  const restockUniverse = new Set<number>([
-    ...officeQtyByProduct.keys(),
-    ...storeQtyByProductThenStore.keys(),
-    ...restockDailyDemand.rows.map((r) => r.product_id),
-  ]);
-
-  const companySeriesByProduct = groupSeries(restockDailyDemand.rows, (r) => r.product_id, "units");
-  const storeSeriesByProductThenStore = new Map<number, Map<number, Period[]>>();
-  for (const r of restockDailyDemand.rows) {
-    if (r.store_id == null) continue;
-    if (!storeSeriesByProductThenStore.has(r.product_id)) storeSeriesByProductThenStore.set(r.product_id, new Map());
-    const byStore = storeSeriesByProductThenStore.get(r.product_id)!;
-    const existing = byStore.get(r.store_id) ?? [];
-    existing.push({ date: r.bucket_date, value: r.units });
-    byStore.set(r.store_id, existing);
-  }
-
-  interface RestockRow {
-    productId: number;
-    name: string;
-    sku: string | null;
-    officeQty: number;
-    storeQtys: { storeId: number; storeName: string; qty: number; isLow: boolean }[];
-    vendorIsLow: boolean;
-    vendorSuggestedQty: number;
-    usedFallbackLeadTime: boolean;
-    risk: CombinedRisk;
-    transferSplit: { storeId: number; storeName: string; qty: number }[];
-  }
-
-  const restockRows: RestockRow[] = [];
-  for (const productId of restockUniverse) {
-    const product = productLookup.get(productId);
-    const officeQty = officeQtyByProduct.get(productId) ?? 0;
-    const storeQtyMap = storeQtyByProductThenStore.get(productId) ?? new Map<number, number>();
-    const combinedQty = officeQty + Array.from(storeQtyMap.values()).reduce((a, b) => a + b, 0);
-
-    const companySeries = companySeriesByProduct.get(productId) ?? [];
-    const companyStats = demandStatsFromDaily(companySeries);
-    const settings = reorderSettingsFor(productId, reorderSettings);
-    const vendorCalc = computeReorder(
-      companyStats,
-      combinedQty,
-      settings.leadTimeDays,
-      settings.targetServiceLevel,
-      FALLBACK_LEAD_TIME_DAYS,
+  if (!selectedTemplateId) {
+    return (
+      <div className="mx-auto max-w-2xl px-6 py-16">
+        <h1 className="text-2xl font-semibold tracking-tight">PO Planning Chart</h1>
+        <p className="mt-2 text-sm text-zinc-500">No products synced yet - run an Odoo sync on Operations first.</p>
+      </div>
     );
-
-    const storeSeriesMap = storeSeriesByProductThenStore.get(productId) ?? new Map<number, Period[]>();
-    const storeQtys: RestockRow["storeQtys"] = [];
-    const storeRatesForSplit: { storeId: number; dailyRate: number }[] = [];
-    let anyStoreLow = false;
-    for (const store of stores) {
-      const qty = storeQtyMap.get(store.id) ?? 0;
-      const series = storeSeriesMap.get(store.id) ?? [];
-      const stats = demandStatsFromDaily(series);
-      const calc = computeReorder(stats, qty, null, settings.targetServiceLevel, FALLBACK_TRANSFER_LEAD_TIME_DAYS);
-      if (calc.isLow) anyStoreLow = true;
-      storeQtys.push({ storeId: store.id, storeName: store.name, qty, isLow: calc.isLow });
-      storeRatesForSplit.push({ storeId: store.id, dailyRate: stats.dailyRate });
-    }
-
-    // Only worth showing on SKUs that actually touch the store network -
-    // skip pure noise rows with zero stock everywhere and no recent sales.
-    if (combinedQty === 0 && companySeries.every((p) => p.value === 0)) continue;
-
-    const risk = combinedRisk(vendorCalc.isLow, anyStoreLow);
-    const split =
-      vendorCalc.suggestedOrderQty > 0
-        ? suggestedTransferSplit(vendorCalc.suggestedOrderQty, storeRatesForSplit).map((s) => ({
-            storeId: s.storeId,
-            storeName: storesById.get(s.storeId) ?? "?",
-            qty: s.qty,
-          }))
-        : [];
-
-    restockRows.push({
-      productId,
-      name: product?.name ?? `#${productId}`,
-      sku: product?.sku ?? null,
-      officeQty,
-      storeQtys,
-      vendorIsLow: vendorCalc.isLow,
-      vendorSuggestedQty: vendorCalc.suggestedOrderQty,
-      usedFallbackLeadTime: vendorCalc.usedFallbackLeadTime,
-      risk,
-      transferSplit: split,
-    });
   }
 
-  const riskOrder: Record<CombinedRisk, number> = { red: 0, yellow: 1, green: 2 };
-  restockRows.sort((a, b) => riskOrder[a.risk] - riskOrder[b.risk] || a.name.localeCompare(b.name));
-  const flaggedRestockRows = restockRows.filter((r) => r.risk !== "green");
-  const anyUsedFallbackLeadTime = restockRows.some((r) => r.usedFallbackLeadTime);
+  const storeId = params.store && params.store !== "all" ? Number(params.store) : null;
+  const colorFilter = params.color || null;
+  const sizeFilter = params.size || null;
+  const coverageMonths = Math.max(1, Number(params.coverageMonths) || 2);
+  const coverageDays = coverageMonths * 30;
+  const serviceLevel = Math.min(0.999, Math.max(0.5, Number(params.serviceLevel) || 0.9));
+  const adjustStockouts = params.adjustStockouts === "on";
+  const yoyOverlayRequested = params.yoyOverlay === "on";
+  const whatIfQty = params.whatIfQty ? Number(params.whatIfQty) : null;
 
-  // ---------------------------------------------------------------------
-  // §2 Revenue forecast & §3 demand forecast share the same monthly rows -
-  // only the value field (revenue vs. units) differs.
-  // ---------------------------------------------------------------------
-  function buildForecast(rows: DemandRow[], field: "revenue" | "units"): ForecastResult {
-    return forecast(totalSeries(rows, field), { horizon });
-  }
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
 
-  const revenueForecast = buildForecast(monthlyDemand.rows, "revenue");
-  const demandForecast = buildForecast(monthlyDemand.rows, "units");
+  const variants = await fetchStyleVariants(supabase, selectedTemplateId);
+  const colorOptions = Array.from(new Set(variants.map((v) => v.color).filter((c): c is string => !!c))).sort();
+  const sizeOptions = Array.from(new Set(variants.map((v) => v.size).filter((s): s is string => !!s))).sort();
 
-  const revenueByStore = groupSeries(monthlyDemand.rows, (r) => r.store_id, "revenue");
-  const revenueByStoreForecast = Array.from(revenueByStore.entries()).map(([storeId, series]) => ({
-    storeId,
-    storeName: storesById.get(storeId) ?? `#${storeId}`,
-    result: forecast(series, { horizon }),
-  }));
-
-  const revenueByCategory = groupSeries(monthlyDemand.rows, (r) => r.category_id, "revenue");
-  const categoryNameById = new Map<number, string>();
-  for (const p of productLookup.values()) {
-    if (p.categoryId != null && p.categoryName) categoryNameById.set(p.categoryId, p.categoryName);
-  }
-  const revenueByCategoryForecast = Array.from(revenueByCategory.entries())
-    .map(([categoryId, series]) => ({
-      categoryId,
-      categoryName: categoryNameById.get(categoryId) ?? `#${categoryId}`,
-      result: forecast(series, { horizon: 1 }),
-      totalRevenue: series.reduce((s, p) => s + p.value, 0),
-    }))
-    .sort((a, b) => b.totalRevenue - a.totalRevenue);
-
-  const demandBySku = groupSeries(monthlyDemand.rows, (r) => r.product_id, "units");
-  const demandBySkuForecast = Array.from(demandBySku.entries())
-    .map(([productId, series]) => ({
-      productId,
-      name: productLookup.get(productId)?.name ?? `#${productId}`,
-      sku: productLookup.get(productId)?.sku ?? null,
-      result: forecast(series, { horizon: 1 }),
-    }))
-    .sort((a, b) => (b.result.forecast[0]?.expected ?? 0) - (a.result.forecast[0]?.expected ?? 0))
-    .slice(0, topN);
-
-  // ---------------------------------------------------------------------
-  // §4 Top & low sellers, cross-referenced with stock
-  // ---------------------------------------------------------------------
-  const soldVariants = topVariantsResult.rows;
-  const soldProductIds = new Set(soldVariants.map((v) => v.product_id));
-  const topSellers = soldVariants.slice(0, topN);
-  const bottomSellers = soldVariants
-    .slice(-topN)
-    .reverse()
-    .filter((v) => !topSellers.some((t) => t.product_id === v.product_id));
-
-  const sellerTrendProductIds = [...topSellers, ...bottomSellers].map((v) => v.product_id);
-  const sellerDailySeriesByProduct = groupSeries(
-    sellerRangeDemand.rows.filter((r) => sellerTrendProductIds.includes(r.product_id)),
-    (r) => r.product_id,
-    "units",
+  const drilldownVariants = variants.filter(
+    (v) => (!colorFilter || v.color === colorFilter) && (!sizeFilter || v.size === sizeFilter),
   );
+  const chartProductIds = drilldownVariants.map((v) => v.productId);
+  const styleProductIds = variants.map((v) => v.productId);
 
-  function stockRiskFor(productId: number): { atRisk: boolean; officeQty: number } {
-    const row = restockRows.find((r) => r.productId === productId);
-    return { atRisk: row ? row.risk !== "green" : false, officeQty: officeQtyByProduct.get(productId) ?? 0 };
+  const historyFrom = monthStart(today, -HISTORY_MONTHS_FOR_YOY_CHECK);
+  const currentMonthIso = monthStart(today, 0);
+  const storeIds = storeId ? [storeId] : null;
+
+  const isDrilldown = !!(colorFilter || sizeFilter);
+  const allocationShares = await fetchAllocationShares(supabase, variants, today.toISOString());
+
+  // --- Actual history (monthly, excludes the current in-progress month - that's handled separately as MTD/projected). Real sales, so this stays at whatever scope the chart is filtered to (drilldown or whole style). ---
+  const monthlySeries = await fetchStyleMonthlyNetUnits(supabase, chartProductIds, storeIds, historyFrom, currentMonthIso);
+  const hasYoyHistory = monthlySeries.length >= HISTORY_MONTHS_FOR_YOY_CHECK;
+  const yoyOverlay = yoyOverlayRequested && hasYoyHistory;
+
+  const dailyThisMonth = await fetchStyleDailyNetUnits(
+    supabase,
+    chartProductIds,
+    storeIds,
+    currentMonthIso,
+    new Date(today.getTime() + DAY_MS).toISOString().slice(0, 10),
+  );
+  const mtd = computeMonthToDate(dailyThisMonth, today);
+
+  // --- Lead time (linked product, or flagged as unlinked -> global default) ---
+  const leadTimeProductId = leadTimeSchemaOk ? await fetchLinkedLeadTimeProductId(supabase, selectedTemplateId) : null;
+  const leadTimeSettings = leadTimeSchemaOk
+    ? await fetchLeadTimeSettings(supabase)
+    : { lateEndBufferPct: 25, globalDefaultMinDays: 42, globalDefaultMaxDays: 56, measuredMinPoCount: 5, firstDeliveryOnly: false };
+
+  let leadTimeResolution: LeadTimeRange;
+  if (leadTimeProductId) {
+    const [estimatesByProduct, measuredByProduct] = await Promise.all([
+      fetchEstimatesByProduct(supabase),
+      fetchMeasuredDeliveriesByProduct(supabase, leadTimeSettings.firstDeliveryOnly),
+    ]);
+    leadTimeResolution = resolveProductLeadTime(
+      estimatesByProduct.get(leadTimeProductId) ?? [],
+      measuredByProduct.get(leadTimeProductId) ?? [],
+      leadTimeSettings,
+    );
+  } else {
+    leadTimeResolution = {
+      minDays: leadTimeSettings.globalDefaultMinDays,
+      maxDays: leadTimeSettings.globalDefaultMaxDays,
+      tier: "default",
+      usedFallback: true,
+      detail: "This style isn't linked to a lead-time product yet (link it on the Lead Times page) - using the global default range.",
+    };
   }
 
-  const deadStockZeroSale = Array.from(officeQtyByProduct.entries())
-    .filter(([productId, qty]) => qty > 0 && !soldProductIds.has(productId))
-    .map(([productId, qty]) => ({
-      productId,
-      name: productLookup.get(productId)?.name ?? `#${productId}`,
-      sku: productLookup.get(productId)?.sku ?? null,
-      officeQty: qty,
-    }))
-    .sort((a, b) => b.officeQty - a.officeQty)
-    .slice(0, topN);
+  const forecastHorizonMonths = Math.ceil((leadTimeResolution.maxDays + coverageDays) / 30);
 
-  // ---------------------------------------------------------------------
-  // §5 Forecast vs. actual - rolling-origin backtest over the same
-  // monthly company series §2/§3 already forecast from. Each point
-  // forecasts month i from months [0..i) only, so it's a genuine
-  // out-of-sample check, not the in-sample fit shown in the chart above.
-  // ---------------------------------------------------------------------
-  const companyMonthly = totalSeries(monthlyDemand.rows, "revenue");
-  interface BacktestPoint {
-    date: string;
-    predicted: number;
-    actual: number;
-    ape: number | null; // null when actual = 0 - can't express a % error against zero
-    cumulativeMape: number | null;
-  }
-  const backtest: BacktestPoint[] = [];
-  {
-    let apeSum = 0;
-    let apeCount = 0;
-    for (let i = 1; i < companyMonthly.length; i++) {
-      const train = companyMonthly.slice(0, i);
-      const actual = companyMonthly[i].value;
-      const predicted = forecast(train, { horizon: 1 }).forecast[0]?.expected ?? 0;
-      const ape = actual !== 0 ? Math.abs(predicted - actual) / Math.abs(actual) : null;
-      if (ape !== null) {
-        apeSum += ape;
-        apeCount++;
-      }
-      backtest.push({
-        date: companyMonthly[i].date,
-        predicted,
-        actual,
-        ape,
-        cumulativeMape: apeCount > 0 ? (apeSum / apeCount) * 100 : null,
-      });
-    }
-  }
-  const overallMape =
-    backtest.length && backtest.some((b) => b.ape !== null)
-      ? (backtest.reduce((s, b) => s + (b.ape ?? 0), 0) / backtest.filter((b) => b.ape !== null).length) * 100
-      : null;
+  // --- Forecast: ALWAYS at full style level, per the brief ("forecast at
+  // style level, then allocate to colour/size by trailing sales mix") -
+  // a colour/size drill-down re-scales this forecast for display rather
+  // than fitting a separate, much sparser model on the filtered subset.
+  // The planner panel (and backtest below) also always uses this
+  // style-level result, regardless of the chart's drill-down. ---
+  const styleMonthlySeries = isDrilldown
+    ? await fetchStyleMonthlyNetUnits(supabase, styleProductIds, storeIds, historyFrom, currentMonthIso)
+    : monthlySeries;
+  const forecastResult = forecast(styleMonthlySeries, { horizon: forecastHorizonMonths });
 
-  const skuBacktestMape = demandBySkuForecast.slice(0, 5).map(({ productId, name, sku }) => {
-    const series = demandBySku.get(productId) ?? [];
-    let apeSum = 0;
-    let apeCount = 0;
-    for (let i = 1; i < series.length; i++) {
-      const train = series.slice(0, i);
-      const actual = series[i].value;
-      if (actual === 0) continue;
-      const predicted = forecast(train, { horizon: 1 }).forecast[0]?.expected ?? 0;
-      apeSum += Math.abs(predicted - actual) / Math.abs(actual);
-      apeCount++;
-    }
-    return { productId, name, sku, mape: apeCount > 0 ? (apeSum / apeCount) * 100 : null, points: apeCount };
+  // Fraction of the style-level forecast this drill-down represents, from
+  // the same trailing-mix shares used for the PO grid. Null (not 0) when
+  // the selected colour/size has no trailing sales to base a share on -
+  // the chart flags this rather than drawing a misleading flat line.
+  const drilldownFraction: number | null = !isDrilldown
+    ? 1
+    : (() => {
+        const colorFrac = colorFilter ? allocationShares.colorShare.get(colorFilter) : 1;
+        const sizeFrac = sizeFilter ? allocationShares.sizeShare.get(sizeFilter) : 1;
+        if (colorFrac === undefined || sizeFrac === undefined) return null;
+        return colorFrac * sizeFrac;
+      })();
+
+  // --- Uplift factors applied on top of the style-level forecast, then the drill-down fraction ---
+  const upliftFactors = poPlanningSchemaOk ? await fetchUpliftFactors(supabase, selectedTemplateId) : [];
+  const upliftedForecast = forecastResult.forecast.map((f) => {
+    const totalFraction = upliftFactors.reduce((sum, factor) => sum + upliftOverlapFraction(f.date, factor) * (factor.upliftPct / 100), 0);
+    const multiplier = (1 + totalFraction) * (drilldownFraction ?? 0);
+    return { ...f, expected: f.expected * multiplier, low: f.low * multiplier, high: f.high * multiplier, upliftMultiplier: multiplier };
   });
 
-  const storeOptions = stores;
+  // --- Stockout days (whatever history exists since migration 0029) ---
+  const { stockoutDays, earliestHistoryDate } = poPlanningSchemaOk
+    ? await fetchStockoutDays(supabase, chartProductIds, historyFrom, currentMonthIso)
+    : { stockoutDays: [], earliestHistoryDate: null };
+  const stockoutDaysByMonth = new Map<string, number>();
+  for (const d of stockoutDays) {
+    const m = `${d.date.slice(0, 7)}-01`;
+    stockoutDaysByMonth.set(m, (stockoutDaysByMonth.get(m) ?? 0) + 1);
+  }
+
+  // --- Events (campaigns, user-added markers) ---
+  const events = poPlanningSchemaOk
+    ? await fetchForecastEvents(
+        supabase,
+        selectedTemplateId,
+        historyFrom,
+        addDaysIso(currentMonthIso, 31 * (forecastHorizonMonths + 1)),
+      )
+    : [];
+
+  // --- Adjust-for-stockouts toggle ---
+  const displayMonths: { date: string; value: number; adjusted: boolean }[] = monthlySeries.map((p) => {
+    if (!adjustStockouts) return { date: p.date, value: p.value, adjusted: false };
+    const stockoutCount = stockoutDaysByMonth.get(p.date) ?? 0;
+    const historyCoversWholeMonth = !!earliestHistoryDate && earliestHistoryDate <= p.date;
+    const result = adjustForStockouts(p.value, daysInMonthOf(p.date), stockoutCount, historyCoversWholeMonth);
+    return { date: p.date, value: result.units, adjusted: result.adjusted };
+  });
+
+  // --- Same month last year overlay ---
+  const yoyByMonth = new Map<string, number>();
+  if (yoyOverlay) {
+    for (const p of monthlySeries) {
+      const d = new Date(`${p.date}T00:00:00Z`);
+      const nextYear = new Date(Date.UTC(d.getUTCFullYear() + 1, d.getUTCMonth(), 1)).toISOString().slice(0, 10);
+      yoyByMonth.set(nextYear, p.value);
+    }
+  }
+
+  // --- PO planner (always computed at full style level, not the chart's colour/size drill-down) ---
+  const stockLevels = await fetchStockLevels(supabase);
+  const styleProductIdSet = new Set(styleProductIds);
+  let currentStockOffice = 0;
+  let currentStockStores = 0;
+  for (const r of stockLevels.rows) {
+    if (!styleProductIdSet.has(r.productId)) continue;
+    if (r.kind === "office") currentStockOffice += r.qty;
+    else currentStockStores += r.qty;
+  }
+
+  const arrivalDateLate = addDaysIso(todayIso, leadTimeResolution.maxDays);
+  const openPoLines = leadTimeProductId ? await fetchOpenPoLines(supabase, leadTimeProductId, leadTimeResolution) : [];
+  const openPoBeforeArrival = openPoLines
+    .filter((l) => l.resolvedEtaLatest <= arrivalDateLate)
+    .reduce((sum, l) => sum + l.qtyOpen, 0);
+
+  const firstForecastMonth = forecastResult.forecast[0];
+  const dailyForecastRate = (firstForecastMonth?.expected ?? 0) / 30;
+  // Converts the monthly forecast's residual std-dev to a daily figure
+  // assuming variance scales linearly with time (a standard but
+  // simplifying assumption - daily demand noise isn't literally
+  // measured, only monthly) - flagged since it feeds safety stock
+  // directly.
+  const dailyForecastStdDev = forecastResult.residualStdDev / Math.sqrt(30);
+
+  const plannerCalc = computePlanner({
+    currentStockOffice,
+    currentStockStores,
+    openPoBeforeArrival,
+    dailyForecastRate,
+    dailyForecastStdDev,
+    daysUntilArrival: leadTimeResolution.maxDays,
+    coverageDays,
+    targetServiceLevel: serviceLevel,
+  });
+
+  const whatIf = whatIfQty != null ? computeWhatIf(whatIfQty, plannerCalc, dailyForecastRate, arrivalDateLate) : null;
+
+  const grid = await buildPoGrid(supabase, variants, plannerCalc.suggestedPoQty, allocationShares, leadTimeProductId);
+
+  // --- Backtest accuracy badge (last 3 months, same rolling one-step-ahead method as /forecast/overview §5, and the same style-level series the forecast itself uses) ---
+  let backtestMape: number | null = null;
+  {
+    const points: number[] = [];
+    const start = Math.max(1, styleMonthlySeries.length - 3);
+    for (let i = start; i < styleMonthlySeries.length; i++) {
+      const train = styleMonthlySeries.slice(0, i);
+      const actual = styleMonthlySeries[i].value;
+      if (actual === 0) continue;
+      const predicted = forecast(train, { horizon: 1 }).forecast[0]?.expected ?? 0;
+      points.push(Math.abs(predicted - actual) / Math.abs(actual));
+    }
+    backtestMape = points.length ? (points.reduce((a, b) => a + b, 0) / points.length) * 100 : null;
+  }
+
+  // --- Chart x-axis: history months (minus current) + MTD + Projected + N forecast months ---
+  type XPoint = { key: string; label: string; kind: "history" | "mtd" | "projected" | "forecast"; monthIso: string };
+  const historyShown = displayMonths.slice(-HISTORY_MONTHS_SHOWN);
+  const xPoints: XPoint[] = [
+    ...historyShown.map((p) => ({ key: p.date, label: monthLabelFormatter.format(new Date(`${p.date}T00:00:00Z`)), kind: "history" as const, monthIso: p.date })),
+    { key: `${currentMonthIso}-mtd`, label: `${monthLabelFormatter.format(new Date(`${currentMonthIso}T00:00:00Z`))} (MTD)`, kind: "mtd" as const, monthIso: currentMonthIso },
+    { key: `${currentMonthIso}-proj`, label: `${monthLabelFormatter.format(new Date(`${currentMonthIso}T00:00:00Z`))} (proj.)`, kind: "projected" as const, monthIso: currentMonthIso },
+    ...upliftedForecast.map((f) => ({ key: f.date, label: monthLabelFormatter.format(new Date(`${f.date}T00:00:00Z`)), kind: "forecast" as const, monthIso: f.date })),
+  ];
+
+  const CHART_W = 820;
+  const CHART_H = 300;
+  const PAD_L = 56;
+  const PAD_R = 16;
+  const PAD_T = 16;
+  const PAD_B = 28;
+  const plotW = CHART_W - PAD_L - PAD_R;
+  const plotH = CHART_H - PAD_T - PAD_B;
+  const xFor = (i: number) => PAD_L + (xPoints.length <= 1 ? 0 : (i / (xPoints.length - 1)) * plotW);
+
+  const maxValue = Math.max(
+    1,
+    ...historyShown.map((p) => p.value),
+    mtd.projectedFullMonthUnits,
+    ...upliftedForecast.map((f) => f.high),
+    ...(yoyOverlay ? Array.from(yoyByMonth.values()) : []),
+  );
+  const step = niceStep(maxValue / 4);
+  const yMax = step * 5;
+  const yFor = (v: number) => PAD_T + plotH - (Math.min(v, yMax) / yMax) * plotH;
+
+  const historyIdxOffset = 0;
+  const actualLinePoints: Point[] = historyShown.map((p, i) => ({ x: xFor(historyIdxOffset + i), y: yFor(p.value) }));
+  const mtdIdx = historyShown.length;
+  const projIdx = historyShown.length + 1;
+  const forecastStartIdx = historyShown.length + 2;
+
+  const expectedLine: Point[] = [
+    { x: xFor(projIdx), y: yFor(mtd.projectedFullMonthUnits) },
+    ...upliftedForecast.map((f, i) => ({ x: xFor(forecastStartIdx + i), y: yFor(f.expected) })),
+  ];
+  const bandTop: Point[] = [
+    { x: xFor(projIdx), y: yFor(mtd.projectedFullMonthUnits) },
+    ...upliftedForecast.map((f, i) => ({ x: xFor(forecastStartIdx + i), y: yFor(f.high) })),
+  ];
+  const bandBottom: Point[] = [
+    { x: xFor(projIdx), y: yFor(mtd.projectedFullMonthUnits) },
+    ...upliftedForecast.map((f, i) => ({ x: xFor(forecastStartIdx + i), y: yFor(f.low) })),
+  ];
+
+  // Zone 1 (a PO placed today would land somewhere in here) and zone 2
+  // (the coverage window right after) are mapped onto the month-indexed
+  // axis by whichever forecast month each boundary date falls in -
+  // whole-month shading, not exact day positions, since the x-axis
+  // itself is categorical by month.
+  const monthIndexFor = (iso: string): number => {
+    const target = iso.slice(0, 7);
+    const idx = xPoints.findIndex((p) => p.monthIso.slice(0, 7) === target);
+    return idx === -1 ? xPoints.length - 1 : idx;
+  };
+  // Zone 1: the window when a PO placed today would arrive (today + lead
+  // time min..max). Zone 2: the coverage window right after arrival.
+  const zone1StartIdx = monthIndexFor(addDaysIso(todayIso, leadTimeResolution.minDays));
+  const zone1EndIdx = monthIndexFor(arrivalDateLate); // arrivalDateLate = today + maxDays
+  const zone2EndIdx = monthIndexFor(addDaysIso(arrivalDateLate, coverageDays));
+
+  const zoneX = (startIdx: number, endIdx: number) => {
+    const x0 = xFor(Math.max(0, startIdx) - 0.4);
+    const x1 = xFor(Math.min(xPoints.length - 1, endIdx) + 0.4);
+    return { x: Math.min(x0, x1), width: Math.abs(x1 - x0) };
+  };
+  const zone1 = zoneX(zone1StartIdx, zone1EndIdx);
+  const zone2 = zoneX(zone1EndIdx, zone2EndIdx);
+
+  const projectedStockoutMonthIdx =
+    plannerCalc.projectedStockoutInDays != null
+      ? monthIndexFor(addDaysIso(todayIso, plannerCalc.projectedStockoutInDays))
+      : null;
+
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
-      <style dangerouslySetInnerHTML={{ __html: paletteCss("fc-scope", ["a", "b", "c"]) }} />
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Forecasting</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">PO Planning Chart</h1>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            Restock alerts, revenue &amp; demand forecasts, and accuracy tracking - built on the same synced Odoo sales data as Operations.
+            Net units sold per month, forecast, and when a new PO would land - per style.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <Link href="/forecast/lead-times" className="text-xs text-zinc-500 hover:underline">
-            Lead times →
-          </Link>
-          <form action={syncStockNowAction}>
-            <input type="hidden" name="returnTo" value={returnTo} />
-            <button
-              type="submit"
-              className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium hover:border-zinc-500 dark:border-zinc-700 dark:hover:border-zinc-500"
-            >
-              Sync stock now
-            </button>
-          </form>
+        <div className="flex items-center gap-3 text-xs">
+          <Link href="/forecast/overview" className="text-zinc-500 hover:underline">Forecasting overview →</Link>
+          <Link href="/forecast/lead-times" className="text-zinc-500 hover:underline">Lead times →</Link>
         </div>
       </div>
 
-      <p className="mt-2 text-xs text-zinc-500">
-        Last sales sync: {lastSalesSync ? `${lastSalesSync.status} (${new Date(lastSalesSync.started_at).toLocaleString()})` : "never"}
-        {" · "}
-        Last stock sync: {lastStockSync ? `${lastStockSync.status} (${new Date(lastStockSync.started_at).toLocaleString()})` : "never"}
-      </p>
+      {!leadTimeSchemaOk && (
+        <AssumptionNote>
+          Lead-time data isn&apos;t available yet - run{" "}
+          <code>supabase/migrations/0027_lead_times.sql</code>,{" "}
+          <code>0028_seed_purchase_orders.sql</code>, and{" "}
+          <code>0029_po_planning.sql</code>. Using the global default lead
+          time (42-56 days) until then.
+        </AssumptionNote>
+      )}
+      {leadTimeSchemaOk && leadTimeResolution.usedFallback && (
+        <AssumptionNote>{leadTimeResolution.detail}</AssumptionNote>
+      )}
+      {!poPlanningSchemaOk && (
+        <AssumptionNote>
+          Uplift factors, events, and stockout-day tracking aren&apos;t
+          available yet - run <code>supabase/migrations/0029_po_planning.sql</code>.
+          The chart and planner still work without them (no uplift applied,
+          no markers, stockout adjustment is a no-op).
+        </AssumptionNote>
+      )}
+      {poPlanningSchemaOk && earliestHistoryDate === null && (
+        <AssumptionNote>
+          No stock history recorded yet for stockout-day detection - that
+          starts accumulating from the next stock sync onward (see
+          migration 0029). Nothing before today can be marked as a
+          stockout, even if one happened.
+        </AssumptionNote>
+      )}
+      {isDrilldown && drilldownFraction === null && (
+        <AssumptionNote>
+          No trailing sales for &quot;{[colorFilter, sizeFilter].filter(Boolean).join(" / ")}&quot;
+          in the window used for allocation (colour: 3 months, size: 6) -
+          the forecast line/band below is 0 rather than a guess. The
+          style-level forecast (all colours/sizes) is unaffected.
+        </AssumptionNote>
+      )}
 
+      {/* Filters */}
       <form className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-zinc-200 p-4 text-xs dark:border-zinc-800" method="get">
         <label className="flex flex-col gap-1">
-          Store (§2-3)
-          <select name="store" defaultValue={params.store ?? "all"} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
-            <option value="all">All stores combined</option>
-            {storeOptions.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
+          Product (style)
+          <select name="style" defaultValue={selectedTemplateId} className="w-56 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
+            {styleOptions.map((s) => (
+              <option key={s.templateId} value={s.templateId}>{s.name}</option>
             ))}
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          History (months)
-          <input type="number" name="months" min={3} max={36} defaultValue={months} className="w-20 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
+          Store
+          <select name="store" defaultValue={params.store ?? "all"} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
+            <option value="all">All stores</option>
+            {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
         </label>
         <label className="flex flex-col gap-1">
-          Forecast horizon (months)
-          <input type="number" name="horizon" min={1} max={12} defaultValue={horizon} className="w-20 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
+          Colour
+          <select name="color" defaultValue={params.color ?? ""} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
+            <option value="">All colours</option>
+            {colorOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
         </label>
         <label className="flex flex-col gap-1">
-          Top/bottom N (§3-5)
-          <input type="number" name="topN" min={1} max={50} defaultValue={topN} className="w-20 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
+          Size
+          <select name="size" defaultValue={params.size ?? ""} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
+            <option value="">All sizes</option>
+            {sizeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
         </label>
         <label className="flex flex-col gap-1">
-          Sellers from (§4)
-          <input type="date" name="from" defaultValue={from} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
+          Coverage (months)
+          <input type="number" name="coverageMonths" min={1} max={12} defaultValue={coverageMonths} className="w-20 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
         </label>
         <label className="flex flex-col gap-1">
-          Sellers to (§4)
-          <input type="date" name="to" defaultValue={to} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
+          Service level
+          <input type="number" name="serviceLevel" step="0.01" min={0.5} max={0.99} defaultValue={serviceLevel} className="w-20 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
         </label>
-        <button type="submit" className="rounded bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-200 dark:text-zinc-900">
+        <label className="flex items-center gap-2 pb-1">
+          <input type="checkbox" name="adjustStockouts" defaultChecked={adjustStockouts} /> Adjust history for stockouts
+        </label>
+        {hasYoyHistory && (
+          <label className="flex items-center gap-2 pb-1">
+            <input type="checkbox" name="yoyOverlay" defaultChecked={yoyOverlay} /> Same month last year
+          </label>
+        )}
+        <button type="submit" className="rounded bg-zinc-800 px-3 py-1.5 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-200 dark:text-zinc-900">
           Apply
         </button>
       </form>
 
-      {/* ------------------------------------------------------------- */}
-      {/* §1 Restock timing & quantity                                   */}
-      {/* ------------------------------------------------------------- */}
-      <section className="mt-10">
-        <SectionHeading
-          title="Restock timing & quantity"
-          subtitle={`Combined risk per SKU across office + ${stores.length} stores. Vendor alert compares combined stock to demand over lead time; store alerts are independent of office stock. ${restockDailyDemand.rows.length === 0 ? "" : `Demand rate from the last ${RESTOCK_WINDOW_DAYS} days.`}`}
-        />
-        {restockUniverse.size === 0 ? (
-          <AssumptionNote>No stock data yet - use &quot;Sync stock now&quot; above.</AssumptionNote>
-        ) : (
-          <>
-            {anyUsedFallbackLeadTime && (
-              <AssumptionNote>
-                Vendor lead time isn&apos;t loaded for these SKUs yet, so a
-                placeholder of {FALLBACK_LEAD_TIME_DAYS} days is used for the
-                vendor-level reorder point below (flagged per-row with *).
-                Store-transfer timing always uses a placeholder internal
-                transfer lead time of {FALLBACK_TRANSFER_LEAD_TIME_DAYS} days
-                - there&apos;s no source for real transfer times yet either.
-                Update <code>vendor_reorder_settings</code> once real numbers
-                are available; no code change needed.
-              </AssumptionNote>
+      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_360px]">
+        {/* Chart */}
+        <div>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium">
+              {styleOptions.find((s) => s.templateId === selectedTemplateId)?.name}
+              {(colorFilter || sizeFilter) && <span className="text-zinc-500"> - {[colorFilter, sizeFilter].filter(Boolean).join(" / ")}</span>}
+            </h2>
+            {backtestMape != null && (
+              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                Backtest (3mo): {backtestMape.toFixed(0)}% MAPE
+              </span>
             )}
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-[720px] text-left text-xs">
-                <thead>
-                  <tr className="text-zinc-500">
-                    <th className="px-2 py-1">SKU</th>
-                    <th className="px-2 py-1 text-right">Office qty</th>
-                    <th className="px-2 py-1">Store stock (low = *)</th>
-                    <th className="px-2 py-1 text-center">Risk</th>
-                    <th className="px-2 py-1 text-right">Vendor order qty</th>
-                    <th className="px-2 py-1">Suggested split of that order</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {flaggedRestockRows.length === 0 ? (
-                    <tr><td colSpan={6} className="px-2 py-3 text-center text-zinc-500">Nothing flagged - all tracked SKUs are above their reorder point.</td></tr>
-                  ) : (
-                    flaggedRestockRows.map((r) => (
-                      <tr key={r.productId} className="border-t border-zinc-100 dark:border-zinc-900">
-                        <td className="px-2 py-1">{r.name}{r.sku ? ` (${r.sku})` : ""}</td>
-                        <td className="px-2 py-1 text-right">{unitFormatter.format(r.officeQty)}</td>
-                        <td className="px-2 py-1">
-                          {r.storeQtys.map((s) => `${s.storeName}: ${unitFormatter.format(s.qty)}${s.isLow ? "*" : ""}`).join(", ")}
-                        </td>
-                        <td className="px-2 py-1 text-center"><RiskBadge risk={r.risk} /></td>
-                        <td className="px-2 py-1 text-right">
-                          {r.vendorIsLow ? `${unitFormatter.format(r.vendorSuggestedQty)}${r.usedFallbackLeadTime ? "*" : ""}` : "-"}
-                        </td>
-                        <td className="px-2 py-1">
-                          {r.transferSplit.length ? r.transferSplit.map((s) => `${s.storeName}: ${unitFormatter.format(s.qty)}`).join(", ") : "-"}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <p className="mt-1 text-[10px] text-zinc-400">
-              {flaggedRestockRows.length} of {restockRows.length} tracked SKUs flagged. &quot;Both low&quot; = office and at least one store are both under their reorder point (most urgent - a transfer alone can&apos;t fix it). &quot;One low&quot; = only one layer is low.
-            </p>
-          </>
-        )}
-      </section>
-
-      {/* ------------------------------------------------------------- */}
-      {/* §2 Revenue forecast                                            */}
-      {/* ------------------------------------------------------------- */}
-      <section className="mt-10">
-        <SectionHeading
-          title="Revenue forecast"
-          subtitle={`${selectedStoreId ? storesById.get(selectedStoreId) ?? "Selected store" : "All stores combined"} - trailing ${months} months, ${horizon}-month forecast band (${demandForecast.method === "holt" ? "Holt exponential smoothing" : "moving average"}).`}
-        />
-        <ForecastChart
-          fitted={revenueForecast.fitted}
-          forecastPoints={revenueForecast.forecast}
-          valueLabel="revenue"
-          formatValue={(v) => currencyFormatter.format(v)}
-          ariaLabel="Monthly revenue, actual and forecast"
-        />
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div>
-            <h3 className="text-sm font-medium">Per store, next {horizon} month(s) total</h3>
-            <table className="mt-1 w-full text-left text-xs">
-              <tbody>
-                {revenueByStoreForecast
-                  .sort((a, b) => a.storeName.localeCompare(b.storeName))
-                  .map(({ storeId, storeName, result }) => (
-                    <tr key={storeId} className="border-t border-zinc-100 dark:border-zinc-900">
-                      <td className="px-2 py-1">{storeName}</td>
-                      <td className="px-2 py-1 text-right">
-                        {currencyFormatter.format(result.forecast.reduce((s, f) => s + f.expected, 0))}
-                        <span className="ml-1 text-zinc-400">
-                          ({currencyFormatter.format(result.forecast.reduce((s, f) => s + f.low, 0))}-
-                          {currencyFormatter.format(result.forecast.reduce((s, f) => s + f.high, 0))})
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
           </div>
-          <div>
-            <h3 className="text-sm font-medium">By category, next month</h3>
-            <table className="mt-1 w-full text-left text-xs">
+
+          <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} className="mt-2 h-auto w-full" role="img" aria-label="Net units sold, forecast, and PO lead-time zones">
+            {/* Zone shading */}
+            <rect x={zone1.x} y={PAD_T} width={zone1.width} height={plotH} className="fill-blue-200/30 dark:fill-blue-500/10" />
+            <rect x={zone2.x} y={PAD_T} width={zone2.width} height={plotH} className="fill-emerald-200/30 dark:fill-emerald-500/10" />
+
+            {/* Y gridlines */}
+            {Array.from({ length: 5 }, (_, i) => step * (i + 1)).map((t) => (
+              <g key={t}>
+                <line x1={PAD_L} x2={CHART_W - PAD_R} y1={yFor(t)} y2={yFor(t)} stroke="currentColor" className="text-zinc-200 dark:text-zinc-800" strokeWidth={1} />
+                <text x={PAD_L - 6} y={yFor(t) + 3} textAnchor="end" className="fill-zinc-400 text-[9px]">{unitFormatter.format(t)}</text>
+              </g>
+            ))}
+
+            {/* Forecast band + expected line */}
+            <path d={bandPath(bandTop, bandBottom)} className="fill-zinc-300/40 dark:fill-zinc-600/30" />
+            <path d={linePath(expectedLine)} fill="none" strokeDasharray="4 3" stroke="currentColor" className="text-zinc-800 dark:text-zinc-200" strokeWidth={2} />
+
+            {/* Actual history line */}
+            <path d={linePath(actualLinePoints)} fill="none" stroke="currentColor" className="text-zinc-800 dark:text-zinc-200" strokeWidth={2} />
+            {historyShown.map((p, i) => (
+              <circle key={p.date} cx={xFor(i)} cy={yFor(p.value)} r={3} className="fill-zinc-800 dark:fill-zinc-200">
+                <title>
+                  {monthLabelFormatter.format(new Date(`${p.date}T00:00:00Z`))}: {unitFormatter.format(p.value)} units
+                  {p.adjusted ? " (adjusted for stockouts)" : ""}
+                  {stockoutDaysByMonth.get(p.date) ? `, ${stockoutDaysByMonth.get(p.date)} stockout day(s)` : ""}
+                </title>
+              </circle>
+            ))}
+
+            {/* MTD + projected current-month points - drawn distinctly, never as a full-month actual */}
+            <circle cx={xFor(mtdIdx)} cy={yFor(mtd.mtdUnits)} r={3} className="fill-blue-600">
+              <title>Month-to-date: {unitFormatter.format(mtd.mtdUnits)} units over {mtd.daysElapsed} of {mtd.daysInMonth} days.</title>
+            </circle>
+            <circle cx={xFor(projIdx)} cy={yFor(mtd.projectedFullMonthUnits)} r={3} className="fill-blue-600" strokeDasharray="2 2" stroke="currentColor">
+              <title>Projected full month (run-rate): {unitFormatter.format(mtd.projectedFullMonthUnits)} units.</title>
+            </circle>
+
+            {/* Forecast points */}
+            {upliftedForecast.map((f, i) => (
+              <circle key={f.date} cx={xFor(forecastStartIdx + i)} cy={yFor(f.expected)} r={3} className="fill-zinc-500">
+                <title>
+                  {monthLabelFormatter.format(new Date(`${f.date}T00:00:00Z`))} forecast: {unitFormatter.format(f.expected)} ({unitFormatter.format(f.low)}-{unitFormatter.format(f.high)})
+                  {f.upliftMultiplier !== 1 ? `, uplift x${f.upliftMultiplier.toFixed(2)}` : ""}
+                </title>
+              </circle>
+            ))}
+
+            {/* Same month last year overlay */}
+            {yoyOverlay && xPoints.map((p, i) => {
+              const v = yoyByMonth.get(p.monthIso);
+              if (v === undefined || p.kind !== "history") return null;
+              return (
+                <circle key={`yoy-${p.key}`} cx={xFor(i)} cy={yFor(v)} r={2.5} className="fill-none stroke-amber-500" strokeWidth={1.5}>
+                  <title>Same month last year: {unitFormatter.format(v)} units.</title>
+                </circle>
+              );
+            })}
+
+            {/* Event markers */}
+            {events.map((e) => {
+              const idx = monthIndexFor(e.eventDate);
+              return (
+                <text key={e.eventDate + e.label} x={xFor(idx)} y={PAD_T - 4} textAnchor="middle" className="fill-violet-600 text-[10px] dark:fill-violet-400">
+                  ★<title>{e.label}{e.note ? ` - ${e.note}` : ""} ({e.eventDate})</title>
+                </text>
+              );
+            })}
+
+            {/* Projected stockout marker */}
+            {projectedStockoutMonthIdx !== null && plannerCalc.projectedStockoutInDays != null && (
+              <line x1={xFor(projectedStockoutMonthIdx)} x2={xFor(projectedStockoutMonthIdx)} y1={PAD_T} y2={PAD_T + plotH} stroke="currentColor" className="text-red-500" strokeWidth={1.5} strokeDasharray="3 2">
+                <title>Projected stockout in {plannerCalc.projectedStockoutInDays} day(s) if no PO lands first.</title>
+              </line>
+            )}
+
+            {/* X labels */}
+            {xPoints.map((p, i) => (
+              <text key={p.key} x={xFor(i)} y={CHART_H - PAD_B + 15} textAnchor="middle" className="fill-zinc-400 text-[8px]">
+                {p.label}
+              </text>
+            ))}
+          </svg>
+
+          <p className="mt-1 flex flex-wrap gap-3 text-[10px] text-zinc-400">
+            <span><span className="inline-block h-2 w-3 bg-blue-200/60 dark:bg-blue-500/20" /> PO-today arrival window ({leadTimeResolution.minDays}-{leadTimeResolution.maxDays}d)</span>
+            <span><span className="inline-block h-2 w-3 bg-emerald-200/60 dark:bg-emerald-500/20" /> Coverage window after arrival ({coverageMonths}mo)</span>
+            <span>★ event/campaign</span>
+            <span className="text-red-500">┊ projected stockout</span>
+          </p>
+        </div>
+
+        {/* Planner panel */}
+        <div className="rounded-lg border border-zinc-200 p-4 text-xs dark:border-zinc-800">
+          <h2 className="text-sm font-medium">PO planner</h2>
+          {!leadTimeProductId && (
+            <AssumptionNote>
+              Not linked to a lead-time product - open PO qty can&apos;t be
+              computed. Link it on{" "}
+              <Link href="/forecast/lead-times" className="underline">Lead times</Link>.
+            </AssumptionNote>
+          )}
+          {plannerCalc.alreadyLate && (
+            <p className="mt-2 rounded border border-red-300 bg-red-50 px-3 py-2 font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
+              Already late: projected stock would go negative before a PO placed today could arrive.
+            </p>
+          )}
+
+          <dl className="mt-3 space-y-1.5">
+            {plannerCalc.steps.map((s) => (
+              <div key={s.label}>
+                <div className="flex justify-between">
+                  <dt className="text-zinc-500">{s.label}</dt>
+                  <dd className="font-medium">{unitFormatter.format(s.value)}</dd>
+                </div>
+                <div className="text-[10px] text-zinc-400">{s.formula}</div>
+              </div>
+            ))}
+          </dl>
+
+          <h3 className="mt-4 text-sm font-medium">What if I order X?</h3>
+          <form className="mt-1 flex items-end gap-2" method="get">
+            {Object.entries(params).map(([k, v]) => v && k !== "whatIfQty" ? <input key={k} type="hidden" name={k} value={v} /> : null)}
+            <input type="number" name="whatIfQty" min={0} defaultValue={params.whatIfQty ?? ""} placeholder="qty" className="w-24 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
+            <button type="submit" className="rounded border border-zinc-300 px-2 py-1 hover:border-zinc-500 dark:border-zinc-700">Simulate</button>
+          </form>
+          {whatIf && (
+            <p className="mt-2 text-zinc-600 dark:text-zinc-400">
+              Stock on landing: <strong>{unitFormatter.format(whatIf.stockAfterLanding)}</strong>.{" "}
+              {whatIf.projectedStockoutDate
+                ? <>Projected to run out around <strong>{whatIf.projectedStockoutDate}</strong>.</>
+                : "Not projected to run out within a year at the current forecast rate."}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* PO sheet grid */}
+      <section className="mt-8 mb-16">
+        <h2 className="text-lg font-medium">Suggested PO - colour × size</h2>
+        <p className="mt-1 text-[10px] text-zinc-500">
+          Suggested qty allocates the style-level total ({unitFormatter.format(plannerCalc.suggestedPoQty)} units) by trailing sales mix - colour over the last 3 months, size over the last 6. A blank cell means no trailing sales to base a share on, not zero demand. Every qty/price cell is editable before exporting.
+        </p>
+        <form action="/api/forecast/export-po" method="post" className="mt-2">
+          <input type="hidden" name="styleName" value={styleOptions.find((s) => s.templateId === selectedTemplateId)?.name ?? ""} />
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px] text-left text-xs">
+              <thead>
+                <tr className="text-zinc-500">
+                  <th className="px-2 py-1">Style</th>
+                  <th className="px-2 py-1">Colour</th>
+                  <th className="px-2 py-1">Size</th>
+                  <th className="px-2 py-1 text-right">Qty</th>
+                  <th className="px-2 py-1 text-right">CMT price (IDR)</th>
+                </tr>
+              </thead>
               <tbody>
-                {revenueByCategoryForecast.slice(0, 8).map(({ categoryId, categoryName, result }) => (
-                  <tr key={categoryId} className="border-t border-zinc-100 dark:border-zinc-900">
-                    <td className="px-2 py-1">{categoryName}</td>
-                    <td className="px-2 py-1 text-right">{currencyFormatter.format(result.forecast[0]?.expected ?? 0)}</td>
+                {grid.map((cell, i) => (
+                  <tr key={i} className="border-t border-zinc-100 dark:border-zinc-900">
+                    <td className="px-2 py-1">
+                      <input type="hidden" name={`color_${i}`} value={cell.color ?? ""} />
+                      <input type="hidden" name={`size_${i}`} value={cell.size ?? ""} />
+                      {styleOptions.find((s) => s.templateId === selectedTemplateId)?.name}
+                    </td>
+                    <td className="px-2 py-1">{cell.color ?? "-"}</td>
+                    <td className="px-2 py-1">{cell.size ?? "-"}</td>
+                    <td className="px-2 py-1 text-right">
+                      <input
+                        type="number"
+                        name={`qty_${i}`}
+                        defaultValue={cell.suggestedQty != null ? Math.round(cell.suggestedQty) : ""}
+                        className="w-20 rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-right dark:border-zinc-700"
+                      />
+                    </td>
+                    <td className="px-2 py-1 text-right">
+                      <input
+                        type="number"
+                        name={`cmt_${i}`}
+                        defaultValue={cell.cmtPriceIdr ?? ""}
+                        className="w-28 rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-right dark:border-zinc-700"
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
-      </section>
-
-      {/* ------------------------------------------------------------- */}
-      {/* §3 Monthly demand forecast                                     */}
-      {/* ------------------------------------------------------------- */}
-      <section className="mt-10">
-        <SectionHeading
-          title="Monthly demand forecast"
-          subtitle={`Units - ${selectedStoreId ? storesById.get(selectedStoreId) ?? "Selected store" : "all stores combined"}. Solid line = actual, dark line = smoothed trend, dashed = forecast. Same engine that feeds §1's restock alerts.`}
-        />
-        <ForecastChart
-          fitted={demandForecast.fitted}
-          forecastPoints={demandForecast.forecast}
-          valueLabel="units"
-          formatValue={(v) => unitFormatter.format(v)}
-          ariaLabel="Monthly unit demand, actual and forecast"
-        />
-        <h3 className="mt-4 text-sm font-medium">Top {topN} SKUs by next month&apos;s forecasted demand</h3>
-        <div className="mt-1 overflow-x-auto">
-          <table className="w-full min-w-[480px] text-left text-xs">
-            <thead>
-              <tr className="text-zinc-500">
-                <th className="px-2 py-1">SKU</th>
-                <th className="px-2 py-1 text-right">Next month forecast</th>
-                <th className="px-2 py-1 text-right">Range</th>
-              </tr>
-            </thead>
-            <tbody>
-              {demandBySkuForecast.map((s) => (
-                <tr key={s.productId} className="border-t border-zinc-100 dark:border-zinc-900">
-                  <td className="px-2 py-1">{s.name}{s.sku ? ` (${s.sku})` : ""}</td>
-                  <td className="px-2 py-1 text-right">{unitFormatter.format(s.result.forecast[0]?.expected ?? 0)}</td>
-                  <td className="px-2 py-1 text-right text-zinc-400">
-                    {unitFormatter.format(s.result.forecast[0]?.low ?? 0)}-{unitFormatter.format(s.result.forecast[0]?.high ?? 0)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* ------------------------------------------------------------- */}
-      {/* §4 Top & low sellers                                           */}
-      {/* ------------------------------------------------------------- */}
-      <section className="mt-10">
-        <SectionHeading
-          title="Top & low sellers"
-          subtitle={`${from} to ${to}${selectedStoreId ? ` - ${storesById.get(selectedStoreId)}` : " - all stores"}. Trend compares the first vs. second half of this range.`}
-        />
-        <div className="mt-3 grid gap-6 sm:grid-cols-2">
-          <div>
-            <h3 className="text-sm font-medium">Top {topN}</h3>
-            <table className="mt-1 w-full text-left text-xs">
-              <thead>
-                <tr className="text-zinc-500">
-                  <th className="px-2 py-1">SKU</th>
-                  <th className="px-2 py-1 text-right">Units</th>
-                  <th className="px-2 py-1 text-center">Trend</th>
-                  <th className="px-2 py-1 text-center">Stock risk</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topSellers.map((v) => {
-                  const { atRisk } = stockRiskFor(v.product_id);
-                  const dir = trendDirection(sellerDailySeriesByProduct.get(v.product_id) ?? []);
-                  return (
-                    <tr key={v.product_id} className="border-t border-zinc-100 dark:border-zinc-900">
-                      <td className="px-2 py-1">{v.product_name}{v.sku ? ` (${v.sku})` : ""}</td>
-                      <td className="px-2 py-1 text-right">{unitFormatter.format(v.units)}</td>
-                      <td className="px-2 py-1 text-center"><TrendArrow direction={dir} /></td>
-                      <td className="px-2 py-1 text-center">{atRisk ? <span className="text-red-600 dark:text-red-400">Stockout risk</span> : "-"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div>
-            <h3 className="text-sm font-medium">Bottom {topN}</h3>
-            <table className="mt-1 w-full text-left text-xs">
-              <thead>
-                <tr className="text-zinc-500">
-                  <th className="px-2 py-1">SKU</th>
-                  <th className="px-2 py-1 text-right">Units</th>
-                  <th className="px-2 py-1 text-center">Trend</th>
-                  <th className="px-2 py-1 text-center">Dead stock?</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bottomSellers.map((v) => {
-                  const { officeQty } = stockRiskFor(v.product_id);
-                  const dir = trendDirection(sellerDailySeriesByProduct.get(v.product_id) ?? []);
-                  return (
-                    <tr key={v.product_id} className="border-t border-zinc-100 dark:border-zinc-900">
-                      <td className="px-2 py-1">{v.product_name}{v.sku ? ` (${v.sku})` : ""}</td>
-                      <td className="px-2 py-1 text-right">{unitFormatter.format(v.units)}</td>
-                      <td className="px-2 py-1 text-center"><TrendArrow direction={dir} /></td>
-                      <td className="px-2 py-1 text-center">{officeQty > 0 ? `${unitFormatter.format(officeQty)} at office` : "-"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        {deadStockZeroSale.length > 0 && (
-          <>
-            <h3 className="mt-4 text-sm font-medium">Zero sales this period, but stock sitting at office</h3>
-            <p className="mt-0.5 text-[10px] text-zinc-500">
-              Not captured by the ranking above (it never sold in range) - flagged separately since it&apos;s the clearest dead-stock signal.
-            </p>
-            <table className="mt-1 w-full max-w-md text-left text-xs">
-              <tbody>
-                {deadStockZeroSale.map((d) => (
-                  <tr key={d.productId} className="border-t border-zinc-100 dark:border-zinc-900">
-                    <td className="px-2 py-1">{d.name}{d.sku ? ` (${d.sku})` : ""}</td>
-                    <td className="px-2 py-1 text-right">{unitFormatter.format(d.officeQty)} at office</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        )}
-      </section>
-
-      {/* ------------------------------------------------------------- */}
-      {/* §5 Forecast vs. actual                                         */}
-      {/* ------------------------------------------------------------- */}
-      <section className="mt-10 mb-16">
-        <SectionHeading
-          title="Forecast vs. actual"
-          subtitle={`Rolling one-month-ahead backtest, company-wide revenue${selectedStoreId ? ` (${storesById.get(selectedStoreId)})` : ""}. Each point forecasts using only the months before it - a genuine out-of-sample check.`}
-        />
-        {backtest.length === 0 ? (
-          <AssumptionNote>Not enough monthly history yet to backtest - need at least 2 months of synced sales.</AssumptionNote>
-        ) : (
-          <>
-            <p className="mt-2 text-sm">
-              Overall MAPE: <span className="font-medium">{overallMape != null ? `${pctFormatter.format(overallMape)}%` : "n/a"}</span>{" "}
-              <span className="text-xs text-zinc-500">({backtest.filter((b) => b.ape !== null).length} backtested month(s))</span>
-            </p>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-[480px] text-left text-xs">
-                <thead>
-                  <tr className="text-zinc-500">
-                    <th className="px-2 py-1">Month</th>
-                    <th className="px-2 py-1 text-right">Predicted</th>
-                    <th className="px-2 py-1 text-right">Actual</th>
-                    <th className="px-2 py-1 text-right">Error</th>
-                    <th className="px-2 py-1 text-right">Cumulative MAPE</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {backtest.map((b) => (
-                    <tr key={b.date} className="border-t border-zinc-100 dark:border-zinc-900">
-                      <td className="px-2 py-1">{monthLabelFormatter.format(new Date(isoDay(b.date)))}</td>
-                      <td className="px-2 py-1 text-right">{currencyFormatter.format(b.predicted)}</td>
-                      <td className="px-2 py-1 text-right">{currencyFormatter.format(b.actual)}</td>
-                      <td className="px-2 py-1 text-right">{b.ape != null ? `${pctFormatter.format(b.ape * 100)}%` : "n/a (zero actual)"}</td>
-                      <td className="px-2 py-1 text-right">{b.cumulativeMape != null ? `${pctFormatter.format(b.cumulativeMape)}%` : "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="mt-1 text-[10px] text-zinc-400">
-              Cumulative MAPE trending down as more months accumulate is what
-              &quot;getting more accurate over time&quot; looks like here -
-              with only a few thousand order lines total, expect this to be
-              noisy for a while yet.
-            </p>
-
-            <h3 className="mt-6 text-sm font-medium">Per-SKU accuracy (top {Math.min(5, demandBySkuForecast.length)} by forecasted demand)</h3>
-            <table className="mt-1 w-full max-w-lg text-left text-xs">
-              <thead>
-                <tr className="text-zinc-500">
-                  <th className="px-2 py-1">SKU</th>
-                  <th className="px-2 py-1 text-right">MAPE</th>
-                  <th className="px-2 py-1 text-right">Backtested months</th>
-                </tr>
-              </thead>
-              <tbody>
-                {skuBacktestMape.map((s) => (
-                  <tr key={s.productId} className="border-t border-zinc-100 dark:border-zinc-900">
-                    <td className="px-2 py-1">{s.name}{s.sku ? ` (${s.sku})` : ""}</td>
-                    <td className="px-2 py-1 text-right">{s.mape != null ? `${pctFormatter.format(s.mape)}%` : "n/a"}</td>
-                    <td className="px-2 py-1 text-right text-zinc-400">{s.points}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        )}
+          <input type="hidden" name="rowCount" value={grid.length} />
+          <button type="submit" className="mt-3 rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium hover:border-zinc-500 dark:border-zinc-700">
+            Export to CSV (opens in Excel)
+          </button>
+        </form>
       </section>
     </div>
   );

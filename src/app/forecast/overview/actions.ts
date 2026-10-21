@@ -11,7 +11,7 @@ import { runStockSync } from "@/lib/odoo/sync";
  * a failure should surface, not a thrown error on the redirect.
  */
 export async function syncStockNowAction(formData: FormData) {
-  const returnTo = String(formData.get("returnTo") || "/forecast");
+  const returnTo = String(formData.get("returnTo") || "/forecast/overview");
 
   try {
     await runStockSync();

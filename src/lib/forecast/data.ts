@@ -124,6 +124,9 @@ export interface ProductLookupRow {
   sku: string | null;
   categoryId: number | null;
   categoryName: string | null;
+  odooTemplateId: number;
+  color: string | null;
+  size: string | null;
 }
 
 export async function fetchProductLookup(
@@ -131,13 +134,16 @@ export async function fetchProductLookup(
 ): Promise<Map<number, ProductLookupRow>> {
   const { data } = await supabase
     .from("products")
-    .select("id, name, sku, category_id, product_categories ( name )");
+    .select("id, name, sku, category_id, odoo_template_id, color, size, product_categories ( name )");
 
   type Row = {
     id: number;
     name: string;
     sku: string | null;
     category_id: number | null;
+    odoo_template_id: number;
+    color: string | null;
+    size: string | null;
     product_categories: { name: string } | null;
   };
 
@@ -149,6 +155,9 @@ export async function fetchProductLookup(
       sku: r.sku,
       categoryId: r.category_id,
       categoryName: r.product_categories?.name ?? null,
+      odooTemplateId: r.odoo_template_id,
+      color: r.color,
+      size: r.size,
     });
   }
   return map;
