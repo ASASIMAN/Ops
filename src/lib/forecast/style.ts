@@ -193,6 +193,73 @@ export function allocateToVariant(
   return styleUnits * colorShare * sizeShare;
 }
 
+export interface StockHistoryRow {
+  date: string; // YYYY-MM-DD
+  qty: number;
+  kind: "office" | "store";
+  storeId: number | null;
+}
+
+/**
+ * Daily stock history for a set of variants, from stock_level_history
+ * (migration 0029 - no backfill, same caveat as fetchStockoutDays).
+ * Returns one row per (location, day) rather than pre-summed, so the
+ * caller can scope it to the whole network, one store, or the office
+ * alone - see `LocationScope` below, which is also what decides whether
+ * an open PO's arrival can be shown stepping up a given series (it only
+ * makes sense for the office or the whole network - a PO doesn't land
+ * at a specific store).
+ */
+export async function fetchStockHistory(
+  supabase: SupabaseClient,
+  productIds: number[],
+  fromIso: string,
+  toIso: string,
+): Promise<StockHistoryRow[]> {
+  if (!productIds.length) return [];
+  const { data } = await supabase
+    .from("stock_level_history")
+    .select("snapshot_date, qty_on_hand, stock_locations ( kind, store_id )")
+    .in("product_id", productIds)
+    .gte("snapshot_date", fromIso)
+    .lt("snapshot_date", toIso);
+
+  type Row = {
+    snapshot_date: string;
+    qty_on_hand: number;
+    stock_locations: { kind: "office" | "store"; store_id: number | null } | null;
+  };
+
+  return ((data ?? []) as unknown as Row[])
+    .filter((r) => r.stock_locations)
+    .map((r) => ({
+      date: r.snapshot_date,
+      qty: r.qty_on_hand,
+      kind: r.stock_locations!.kind,
+      storeId: r.stock_locations!.store_id,
+    }));
+}
+
+/** Which locations a series' stock figures are drawn from. 'network' = office + every store combined (only meaningful when nothing narrower was selected); a specific store or the office alone otherwise. */
+export type LocationScope = { kind: "network" } | { kind: "store"; storeId: number } | { kind: "office" };
+
+export function matchesScope(row: { kind: "office" | "store"; storeId: number | null }, scope: LocationScope): boolean {
+  if (scope.kind === "network") return true;
+  if (scope.kind === "office") return row.kind === "office";
+  return row.kind === "store" && row.storeId === scope.storeId;
+}
+
+export function sumStockHistoryByDate(rows: StockHistoryRow[], scope: LocationScope): Period[] {
+  const byDate = new Map<string, number>();
+  for (const r of rows) {
+    if (!matchesScope(r, scope)) continue;
+    byDate.set(r.date, (byDate.get(r.date) ?? 0) + r.qty);
+  }
+  return Array.from(byDate.entries())
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([date, value]) => ({ date, value }));
+}
+
 export interface StockoutDay {
   date: string; // YYYY-MM-DD
 }

@@ -217,6 +217,105 @@ export function computeWhatIf(
   return { stockAfterLanding, projectedStockoutDate: stockoutDate.toISOString().slice(0, 10) };
 }
 
+export interface TrajectoryPoint {
+  date: string;
+  /** Pessimistic: an open PO only counts once it lands at its LATE eta. */
+  low: number;
+  /** Optimistic: an open PO counts from its EARLY eta. The gap between low/high at a given date is the small band the brief asks for around each PO's ETA uncertainty. */
+  high: number;
+}
+
+/**
+ * Projects stock forward day by day from `currentStock`: a flat
+ * `dailyForecastRate` draws it down (no within-month seasonality, same
+ * simplification as the rest of this module), and each open PO in
+ * `openPoLines` steps it back up once its resolved ETA is reached -
+ * `low` uses each PO's late ETA, `high` its early ETA. A new
+ * hypothetical "what if" order can be passed the same way, as one more
+ * entry in `openPoLines`.
+ */
+export function projectStockTrajectory(
+  currentStock: number,
+  dailyForecastRate: number,
+  openPoLines: { qtyOpen: number; resolvedEtaEarliest: string; resolvedEtaLatest: string }[],
+  startDateIso: string,
+  horizonDays: number,
+): TrajectoryPoint[] {
+  const startMs = new Date(`${startDateIso}T00:00:00Z`).getTime();
+  const points: TrajectoryPoint[] = [];
+
+  for (let day = 0; day <= horizonDays; day++) {
+    const dateIso = new Date(startMs + day * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const demandSoFar = dailyForecastRate * day;
+    let landedLow = 0;
+    let landedHigh = 0;
+    for (const po of openPoLines) {
+      if (po.resolvedEtaLatest <= dateIso) landedLow += po.qtyOpen;
+      if (po.resolvedEtaEarliest <= dateIso) landedHigh += po.qtyOpen;
+    }
+    points.push({
+      date: dateIso,
+      low: Math.max(0, currentStock - demandSoFar + landedLow),
+      high: Math.max(0, currentStock - demandSoFar + landedHigh),
+    });
+  }
+  return points;
+}
+
+export interface OrderByResult {
+  /** First date the pessimistic (low) trajectory reaches the safety-stock level - null if it never does within the projected horizon. */
+  crossesSafetyStockDate: string | null;
+  /** crossesSafetyStockDate minus the late lead time - the last day an order can be placed and still (pessimistically) land before stock reaches the safety-stock floor. Null when crossesSafetyStockDate is null. */
+  orderByDate: string | null;
+  /** True when orderByDate is already in the past - an order placed today will land after stock was projected to already be at/under the safety-stock level. */
+  alreadyLate: boolean;
+}
+
+export function computeOrderByDate(
+  trajectory: TrajectoryPoint[],
+  safetyStockLevel: number,
+  lateLeadTimeDays: number,
+  todayIso: string,
+): OrderByResult {
+  const crossing = trajectory.find((p) => p.low <= safetyStockLevel);
+  if (!crossing) {
+    return { crossesSafetyStockDate: null, orderByDate: null, alreadyLate: false };
+  }
+  const orderByMs = new Date(`${crossing.date}T00:00:00Z`).getTime() - lateLeadTimeDays * 24 * 60 * 60 * 1000;
+  const orderByDate = new Date(orderByMs).toISOString().slice(0, 10);
+  return { crossesSafetyStockDate: crossing.date, orderByDate, alreadyLate: orderByDate < todayIso };
+}
+
+export type CoverStatus = "ok" | "low" | "risk";
+
+export interface CoverSummary {
+  weeksOfCover: number | null; // null = no forecasted demand to divide by (can't be computed, not infinite)
+  status: CoverStatus;
+}
+
+/**
+ * "risk" = projected to run out before a PO placed today could even
+ * arrive (the late lead time) - matches `PlannerCalc.alreadyLate`.
+ * "low" = lasts past arrival but not through the full coverage window
+ * after it. "ok" = comfortably covers lead time + coverage. These
+ * thresholds reuse the same lead-time/coverage numbers already on
+ * screen rather than introducing a separate, unexplained cutoff.
+ */
+export function coverStatus(
+  currentStock: number,
+  dailyForecastRate: number,
+  lateLeadTimeDays: number,
+  coverageDays: number,
+): CoverSummary {
+  if (dailyForecastRate <= 0) return { weeksOfCover: null, status: "ok" };
+  const daysOfCover = currentStock / dailyForecastRate;
+  const weeksOfCover = daysOfCover / 7;
+  let status: CoverStatus = "ok";
+  if (daysOfCover < lateLeadTimeDays) status = "risk";
+  else if (daysOfCover < lateLeadTimeDays + coverageDays) status = "low";
+  return { weeksOfCover, status };
+}
+
 export interface GridCell {
   color: string | null;
   size: string | null;
