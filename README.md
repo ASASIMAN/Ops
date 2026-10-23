@@ -377,7 +377,141 @@ all need real credentials/exports that haven't been provided yet.
   compact `Rp 2.4M`/`Rp 245k` formatter are used throughout this page
   only - the rest of the app keeps full-precision Rupiah and UTC dates.
 
-## Forecasting (/forecast)
+## PO Planning Chart (/forecast)
+
+The forecasting module's main screen: store tabs, a product multi-select
+(up to 4 styles overlaid, or one style split into its 4 stores + office),
+two charts sharing one x-axis, a legend with per-series status, a PO
+planner card, and a suggested-PO grid. "Style" = an Odoo product template
+- colour/size variants of one style share a forecast and get allocated
+back out, never forecast independently.
+
+**Series**: each selected style (or, in split-by-store mode, each store
++ the office) is one coloured series, reusing the app's existing
+categorical palette (`src/lib/viz/palette.ts`) so colours stay stable
+across both charts and the legend. A specific store tab (or
+split-by-store) scopes that series' sales *and* stock figures to that
+one location; "All stores" (the default) is the whole network (office +
+every store) combined.
+
+**Left chart - units sold per month**: solid line = actual net units
+(sales minus returns - `order_lines.qty` already carries a negative sign
+on refund lines at the same grain, so summing it is already net). The
+current month is never plotted as a completed month: it shows as two
+points, month-to-date (filled dot) and a run-rate projection to a full
+month (hollow dot). Dashed line + band = forecast low/expected/high for
+the "Next" dropdown's months, from the same `forecast()` engine as
+`/forecast/overview` - always fit on the *full style* (or store) series,
+never re-fit on a smaller filtered slice. Markers: a small square below
+the axis for a month with any recorded stockout day (count in the
+tooltip), ★ for an event/campaign, and a same-month-last-year overlay
+(hollow rings) once ≥13 months of history exist. "Adjust history for
+stockouts" scales an affected month up by `days / (days - stockout
+days)`, only for months migration 0029's stock history actually covers.
+
+**Right chart - stock on hand**: solid = recorded stock history (same
+no-backfill caveat as below); dashed = projected (current stock minus
+the forecast's demand rate, plus open POs stepping up at their resolved
+ETA - shown as a thin band between the pessimistic/late-ETA and
+optimistic/early-ETA trajectories). The red line and the "Order by
+\<date\>" marker belong to whichever series is the PO planner's current
+focus product (see below) - they're not repeated per series, since a
+safety-stock level is specific to one product's coverage/service-level
+settings, not a shared axis value. "Order by" is `(the date stock is
+projected to reach the safety-stock level) - (late lead time)`;
+**already late** when that date is in the past.
+
+Both charts share the same "Past"/"Next" dropdowns (6/12/24/all months
+back; 1/3/6 months ahead, defaulting to the smallest option ≥
+`ceil((late lead time + coverage days) / 30)` - the real, uncapped value
+still drives the shaded zones and the planner even if a shorter "Next"
+is picked for the chart itself) and the two shaded zones: when a PO
+placed *today* would arrive (today + lead time min..max, from whichever
+series is first/the plan product), and the coverage window right after.
+
+**Legend**: one line per series - current stock, weeks of cover, and a
+status badge. `risk` (red) = projected to run out before a PO placed
+today could even arrive; `low` (amber) = lasts past arrival but not
+through the full coverage window after it; `ok` (green) = comfortably
+covers both. A 3-month backtest MAPE badge sits next to each series too.
+
+**Split-by-store / single-store tab caveat**: an open PO lands at the
+office, not at a specific store, so whenever a series is scoped to one
+store (a store tab, or any non-office series in split-by-store mode) its
+stock projection shows demand draw-down only, with no PO step-up -
+flagged on the page rather than guessing how much of an incoming order
+that store would get before it's actually transferred (that allocation
+is what `/forecast/overview`'s restock §1 computes, after the fact, not
+something decided in advance).
+
+**Manual uplift factors** (`forecast_uplift_factors`) and **events**
+(`forecast_events`) are business-entered, date-ranged, nothing inferred
+from sales. Date ranges rather than a recurring "month of year" because
+Lebaran moves ~11 days earlier every Gregorian year (lunar calendar) - a
+fixed calendar month would silently drift wrong, so each occurrence gets
+its own real start/end date instead of a guessed rule.
+
+**PO planner card**: always the full network (office + every store) for
+one "focus" product - independent of the charts' tab/split-by-store view
+above, with a "Plan for" selector when more than one style is shown.
+Current stock, open PO qty not yet received (from the imported PO
+history), the resolved lead time (late end), and editable coverage
+months/service level. `stock_on_arrival = max(0, current stock + open PO
+landing before arrival - forecast until arrival)`;
+`target = forecast over coverage + safety stock` (safety stock from the
+forecast's own error distribution via the same z-score function the
+restock alerts use - not a fixed %); `suggested PO qty = max(0, target -
+stock on arrival)`. Every line of that calculation is shown, not just
+the result. "What if I order X" projects stock after landing and a
+stockout date. "Already late" flags when projected stock would go
+negative before a PO placed today could possibly arrive.
+
+**Suggested PO grid**: colour × size, in the PO sheet's own layout
+(style, colour, size, qty, CMT price), for the planner's focus product,
+every qty/price cell editable before exporting. CMT price is pulled from
+the most recent `purchase_order_lines.unit_price_idr` seen for that
+exact colour+size, when one exists. **Export to CSV** (not .xlsx - see
+below) posts the form's current values (including any edits) to
+`/api/forecast/export-po`, so the export always matches what's on
+screen, not a server-recomputed value that could silently differ from an
+edited cell.
+
+**New schema** (`supabase/migrations/0029_po_planning.sql`):
+`forecast_uplift_factors`, `forecast_events`, and
+`stock_level_history` (append-only daily stock snapshot - `stock_levels`
+from migration 0023 is overwritten in place each sync and was never
+meant to answer "was this in stock on day X"; `runStockSync` now also
+appends to this table, so stockout-day detection and the right-hand
+chart's "solid" history only have data from whenever a stock sync first
+ran after this migration - **no backfill**, and the page says so rather
+than showing a clean history as "never stocked out"). A chart style
+(Odoo template) and the lead-time system's product (migration 0027,
+quoted per style on the PO sheet) are still two separate identities -
+`lead_time_name_mappings.odoo_template_id` is where a human links them;
+until a style is linked, the planner can't compute open-PO-qty or a real
+lead time for it and says so (falls back to the global default range)
+rather than showing 0.
+
+**Flagged assumptions**:
+- Colour share (trailing 3 months) and size share (trailing 6 months)
+  are combined multiplicatively to allocate a style forecast down to one
+  (colour, size) cell - assumes they're independent, not a measured
+  joint distribution. A colour/size with no trailing sales gets no
+  share (allocation shows blank, not 0 - "no data" isn't "no demand").
+- The forecast engine's residual std-dev is monthly; the planner's and
+  the stock trajectory's safety-stock math needs a daily figure, so it's
+  divided by `sqrt(30)` (variance scales linearly with time) - daily
+  demand noise isn't actually measured, only monthly.
+- The stock trajectory draws down at a flat daily rate (no within-month
+  seasonality) and only steps up for POs already in `purchase_orders` -
+  a brand-new "what if" order is layered on top the same way, at its own
+  min/max ETA.
+- No seasonality learning until ≥24 months of data exists, same
+  reasoning as `/forecast/overview`.
+- Grid edits and "what if" quantities aren't persisted anywhere beyond
+  the CSV they're exported in - there's no draft-PO storage yet.
+
+## Forecasting overview (/forecast/overview)
 
 Five sections, all built on the same synced Odoo sales data as the Sales
 Dashboard, plus a new stock sync:
@@ -429,10 +563,86 @@ useful date range, so unlike the sales sync there's no `days` parameter -
 it always syncs the current position). Shares the `sync_runs` table with
 the sales sync, distinguished by a new `sync_type` column.
 
+### Lead times (/forecast/lead-times)
+
+A separate, more precise lead-time system than `vendor_reorder_settings`
+above - per-product (not per-SKU; vendor lead times are quoted per
+style, colour/size variants share one row), with a full ETA priority
+chain and real purchase-order history to measure against. New schema in
+`supabase/migrations/0027_lead_times.sql` and `0028_seed_purchase_orders.sql`
+(seeds the 16 real POs / 317 lines supplied in `po_lines_clean.csv`):
+
+- `lead_time_products` - the canonical product identity this subsystem
+  keys off (NOT Odoo's product_id).
+- `lead_time_name_mappings` - the **only** place a raw name (from a PO
+  sheet or Odoo) becomes a `lead_time_products` row. Nothing here ever
+  splits a name on `" - "` to guess colour vs. variant - that separator
+  means different things in different names ("Linen Pants - Black" vs.
+  "Origin Shirt - Long Sleeve"), so every raw name is mapped explicitly.
+  An importer creates a new 1:1 mapping (never a merge) for a name it
+  hasn't seen, flagged `auto_created` for a human to confirm.
+- `lead_times` - the editable table the brief asked for: product,
+  vendor (nullable), min/max days, source (`vendor estimate` /
+  `measured` / `manual`), note, plus `raw_text` for audit against the
+  normalized number.
+- `lead_time_settings` - one editable row: the late-end buffer applied
+  to single-point estimates, the global default range, the minimum PO
+  count before "measured" activates, and the two assumptions the brief
+  asked to be visible/editable rather than baked in - clock start
+  (currently only "PO date" is implemented) and whether an estimate
+  covers the first delivery/batch only or the whole PO.
+- `purchase_orders` / `purchase_order_lines` - real PO history, for
+  measuring actual lead time once delivery dates exist.
+  `purchase_orders.manual_eta_date` is the highest-priority override.
+
+**Text normalization** (`src/lib/leadtime/normalize.ts`): parses mixed
+English/Indonesian lead-time text - "10 days" = 10, "1 Month"/"1 Bulan" =
+30, "2-3 Months" = 60-90, "4-6 minggu" = 28-42, etc. Unparseable text is
+reported back to whoever imports it, never guessed.
+
+**ETA priority** (`src/lib/leadtime/resolve.ts`), most specific first:
+manual ETA on the PO → measured lead time (once a product has ≥
+`measured_min_po_count` POs with real delivery dates - currently **0**
+for every product, since the supplied PO export has no delivery dates
+yet) → this product's row in `lead_times` → the global default range.
+A single-point `lead_times` estimate gets the configurable late-end
+buffer (default +25%) applied to its high end for alerting; a range
+estimate or a measured range doesn't need one.
+
+**Importing vendor estimates**: `/forecast/lead-times` has a CSV upload
+(`src/lib/adapters/lead-time-estimates.ts` + `src/lib/leadtime/ingest.ts`).
+**Not .xlsx** - the only npm package that parses `.xlsx` (`xlsx`/SheetJS)
+carries two unpatched high-severity CVEs (prototype pollution, ReDoS)
+with no fix available, so it wasn't added as a dependency; export
+`Product_estimation_Vendor.xlsx` to CSV first, same as the existing Meta
+Ads importer already requires.
+
+**Not yet wired into restock alerts** (`/forecast/overview`'s §1): the restock
+calc still reads `vendor_reorder_settings`/`FALLBACK_LEAD_TIME_DAYS`
+(below), not this new system. Doing so needs Odoo product names/template
+ids mapped into `lead_time_name_mappings` (the `odoo_template_id` column
+exists for exactly this) - not done yet because no Odoo product-name
+data has been imported here to map from. Once that mapping exists, swap
+`src/app/forecast/page.tsx`'s restock section to call
+`resolveProductLeadTime`/`resolveEtaForPo` instead.
+
 **Flagged assumptions / open items** - none of these are silently
 defaulted; each is called out where it's used in code and in the UI:
-- **Vendor lead time per SKU** isn't loaded yet (the business will send
-  it) - `vendor_reorder_settings.lead_time_days` is null until then, and
+- **The actual vendor estimates haven't been imported** -
+  `Product_estimation_Vendor.xlsx` wasn't attached when this was built;
+  `lead_times` is empty until it's exported to CSV and uploaded via
+  `/forecast/lead-times`.
+- **Zero measured lead times yet** - the supplied PO export has no
+  `b1_date`/`b2_date`/`b3_date` values at all, so "measured" never
+  activates today. The machinery is ready; it starts working the moment
+  real delivery dates exist.
+- **"Shadow - Long Sleeve" vs. "Shadow Shirt"** (PO 135 vs. POs
+  146/148/150, both Black-only) may be the same garment renamed over
+  time - left as two separate products, flagged in
+  `lead_time_name_mappings`, pending a human confirming whether to merge.
+- **Vendor lead time per SKU** (the older, coarser mechanism, still what
+  restock alerts actually use) isn't loaded yet -
+  `vendor_reorder_settings.lead_time_days` is null until then, and
   the restock calc falls back to a placeholder
   (`FALLBACK_LEAD_TIME_DAYS = 14` days, `src/lib/forecast/restock.ts`),
   visibly flagged with `*` on every affected row.

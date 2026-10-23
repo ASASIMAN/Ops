@@ -10,7 +10,7 @@
   {
     "id": "forecast",
     "title": "Forecasting",
-    "description": "Restock alerts, revenue/demand forecasts, top & low sellers, and forecast accuracy - built on the Odoo sales sync.",
+    "description": "PO planning chart & planner, restock alerts, revenue/demand forecasts, top & low sellers, and forecast accuracy - built on the Odoo sales sync.",
     "route": "/forecast",
     "roles": ["admin", "ops", "viewer"],
     "status": "live"

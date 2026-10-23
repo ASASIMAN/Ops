@@ -250,6 +250,23 @@ export async function runStockSync() {
       { onConflict: "product_id,location_id" },
     );
 
+    // Also appends today's position to stock_level_history (migration
+    // 0029) - stock_levels above is overwritten in place and was never
+    // meant to answer "was this in stock on day X"; this is the one
+    // place that history starts accumulating from. One row per
+    // product+location+day: a second sync later the same day overwrites
+    // today's row rather than duplicating it.
+    const snapshotDate = syncedAt.slice(0, 10);
+    await supabase.from("stock_level_history").upsert(
+      Array.from(qtyByKey.values()).map((v) => ({
+        product_id: v.productId,
+        location_id: v.locationId,
+        qty_on_hand: v.qty,
+        snapshot_date: snapshotDate,
+      })),
+      { onConflict: "product_id,location_id,snapshot_date" },
+    );
+
     await supabase
       .from("sync_runs")
       .update({
