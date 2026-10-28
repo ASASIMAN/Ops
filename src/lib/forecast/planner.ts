@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StyleVariant } from "./style";
 import { allocateToVariant, type AllocationShares } from "./style";
+import { canonicalColor, canonicalSize, type AttributeAliasMap } from "./aliases";
 import { resolveEtaForPo, type LeadTimeRange } from "@/lib/leadtime/resolve";
 import { zScoreForServiceLevel } from "./restock";
 
@@ -323,13 +324,14 @@ export interface GridCell {
   cmtPriceIdr: number | null;
 }
 
-/** The colour x size grid in the PO sheet's own layout (style, colour, size, qty, CMT price) - cmtPriceIdr comes from the most recent purchase_order_lines.unit_price_idr seen for that exact colour+size, when any exists. */
+/** The colour x size grid in the PO sheet's own layout (style, colour, size, qty, CMT price) - cmtPriceIdr comes from the most recent purchase_order_lines.unit_price_idr seen for that exact colour+size (canonicalized through attribute_aliases, since the PO sheet's own colorway spelling doesn't always match Odoo's - see migration 0031), when any exists. */
 export async function buildPoGrid(
   supabase: SupabaseClient,
   variants: StyleVariant[],
   suggestedStyleQty: number,
   shares: AllocationShares,
   leadTimeProductId: number | null,
+  aliases: AttributeAliasMap,
 ): Promise<GridCell[]> {
   let priceByColorSize = new Map<string, number>();
   if (leadTimeProductId) {
@@ -340,7 +342,7 @@ export async function buildPoGrid(
       .order("po_id", { ascending: false });
     priceByColorSize = new Map();
     for (const r of data ?? []) {
-      const key = `${r.colorway ?? ""}:${r.size ?? ""}`;
+      const key = `${canonicalColor(r.colorway, aliases) ?? ""}:${canonicalSize(r.size, aliases) ?? ""}`;
       if (!priceByColorSize.has(key) && r.unit_price_idr != null) {
         priceByColorSize.set(key, r.unit_price_idr);
       }
@@ -350,8 +352,8 @@ export async function buildPoGrid(
   return variants.map((v) => ({
     color: v.color,
     size: v.size,
-    suggestedQty: allocateToVariant(suggestedStyleQty, v.color, v.size, shares),
-    cmtPriceIdr: priceByColorSize.get(`${v.color ?? ""}:${v.size ?? ""}`) ?? null,
+    suggestedQty: allocateToVariant(suggestedStyleQty, v.color, v.size, shares, aliases),
+    cmtPriceIdr: priceByColorSize.get(`${canonicalColor(v.color, aliases) ?? ""}:${canonicalSize(v.size, aliases) ?? ""}`) ?? null,
   }));
 }
 
