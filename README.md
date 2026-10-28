@@ -393,137 +393,133 @@ all need real credentials/exports that haven't been provided yet.
 
 ## PO Planning Chart (/forecast)
 
-The forecasting module's main screen: store tabs, a product multi-select
-(up to 4 styles overlaid, or one style split into its 4 stores + office),
-two charts sharing one x-axis, a legend with per-series status, a PO
-planner card, and a suggested-PO grid. "Style" = an Odoo product template
-- colour/size variants of one style share a forecast and get allocated
-back out, never forecast independently.
+The forecasting module's main screen: a filter row (product type-ahead,
+colour/size/store, an optional "+ Compare" second product, Past/Next
+range), one chart, and a collapsed-by-default PO planner panel below it.
+"Style" = an Odoo product template - colour/size variants of one style
+share a forecast and get allocated back out, never forecast
+independently.
 
-**Series**: each selected style (or, in split-by-store mode, each store
-+ the office) is one coloured series, reusing the app's existing
-categorical palette (`src/lib/viz/palette.ts`) so colours stay stable
-across both charts and the legend. A specific store tab (or
-split-by-store) scopes that series' sales *and* stock figures to that
-one location; "All stores" (the default) is the whole network (office +
-every store) combined.
+**Filters**: `Product` is a free-text input with an HTML `<datalist>` of
+every style name, so it type-aheads with no client-side JS. Typing a
+name that doesn't match any style is flagged and the previous selection
+is kept rather than silently guessing the closest one. `+ Compare` adds
+a second style as a second line on the chart (its own colour from the
+app's categorical palette) - it does not get its own planner panel,
+which stays scoped to the primary product. `Colour`/`Size` only list
+values that exist for the *primary* product's own variants, and are
+canonical values (see `attribute_aliases` below) so "Bone" and "Off
+White" show as one dropdown entry if aliased. `Store` defaults to "All
+stores" (office + every store combined). Every filter round-trips
+through the URL query string.
 
-**Left chart - units sold per month**: solid line = actual net units
-(sales minus returns - `order_lines.qty` already carries a negative sign
-on refund lines at the same grain, so summing it is already net). The
-current month is never plotted as a completed month: it shows as two
-points, month-to-date (filled dot) and a run-rate projection to a full
-month (hollow dot). Dashed line + band = forecast low/expected/high for
-the "Next" dropdown's months, from the same `forecast()` engine as
-`/forecast/overview` - always fit on the *full style* (or store) series,
-never re-fit on a smaller filtered slice. Markers: a small square below
-the axis for a month with any recorded stockout day (count in the
-tooltip), ★ for an event/campaign, and a same-month-last-year overlay
-(hollow rings) once ≥13 months of history exist. "Adjust history for
-stockouts" scales an affected month up by `days / (days - stockout
-days)`, only for months migration 0029's stock history actually covers.
+**Chart**: solid line = actual net units sold per month (sales minus
+returns - `order_lines.qty` already carries a negative sign on refund
+lines at the same grain, so summing it is already net), one marker per
+month. The current month is never plotted as a completed month: it
+shows as two points, month-to-date (filled dot) and a run-rate
+projection to a full month (hollow dot). Dashed line + band = forecast
+low/expected/high for the "Next" dropdown's months (1/3/6, defaulting to
+the smallest option ≥ `ceil((late lead time + coverage days) / 30)`),
+from the same `forecast()` engine as `/forecast/overview` - always fit
+on the *full style*, then scaled down by the colour/size trailing-mix
+share (colour: 3 months, size: 6) when a colour/size filter is active,
+never re-fit on the smaller filtered slice directly. A vertical "Today"
+line and a "Prediction" label mark the forecast region. A small square
+below the axis flags a month with any recorded stockout day (count in
+the tooltip); "Adjust history for stockouts" scales an affected month up
+by `days / (days - stockout days)`, only for months migration 0029's
+stock history actually covers. A low-volume badge appears when the
+current selection averages under `lowVolumeThreshold` (default 10)
+units/month - the forecast is real but rougher on that little data. An
+empty state replaces the chart entirely when the selection has no sales
+history at all.
 
-**Right chart - stock on hand**: solid = recorded stock history (same
-no-backfill caveat as below); dashed = projected (current stock minus
-the forecast's demand rate, plus open POs stepping up at their resolved
-ETA - shown as a thin band between the pessimistic/late-ETA and
-optimistic/early-ETA trajectories). The red line and the "Order by
-\<date\>" marker belong to whichever series is the PO planner's current
-focus product (see below) - they're not repeated per series, since a
-safety-stock level is specific to one product's coverage/service-level
-settings, not a shared axis value. "Order by" is `(the date stock is
-projected to reach the safety-stock level) - (late lead time)`;
-**already late** when that date is in the past.
+**Manual uplift factors** (`forecast_uplift_factors`) are business-
+entered, date-ranged, nothing inferred from sales - date ranges rather
+than a recurring "month of year" because Lebaran moves ~11 days earlier
+every Gregorian year (lunar calendar), so a fixed calendar month would
+silently drift wrong; each occurrence gets its own real start/end date.
 
-Both charts share the same "Past"/"Next" dropdowns (6/12/24/all months
-back; 1/3/6 months ahead, defaulting to the smallest option ≥
-`ceil((late lead time + coverage days) / 30)` - the real, uncapped value
-still drives the shaded zones and the planner even if a shorter "Next"
-is picked for the chart itself) and the two shaded zones: when a PO
-placed *today* would arrive (today + lead time min..max, from whichever
-series is first/the plan product), and the coverage window right after.
+**Colour/size name reconciliation** (`attribute_aliases`, migration
+0031): Odoo's own `products.color`/`size` and the PO sheet's
+`colorway`/`size` don't always spell the same attribute the same way
+(the business's own example: "Bone" vs. "Off White"). Every place that
+groups or joins by colour/size - the dropdowns, the trailing-mix
+allocation, the PO grid's CMT-price lookup - canonicalizes through this
+table first (`src/lib/forecast/aliases.ts`), never by string-matching. A
+value with no row here is its own canonical form; it starts empty and
+needs real aliases added once the business confirms which spellings are
+the same thing.
 
-**Legend**: one line per series - current stock, weeks of cover, and a
-status badge. `risk` (red) = projected to run out before a PO placed
-today could even arrive; `low` (amber) = lasts past arrival but not
-through the full coverage window after it; `ok` (green) = comfortably
-covers both. A 3-month backtest MAPE badge sits next to each series too.
+**PO planner panel** (collapsed by default, `<details>` - no JS):
+always the primary product, full network (office + every store),
+independent of the chart's store filter. Current stock, open PO qty not
+yet received (from the imported PO history), the resolved lead time
+(late end), and editable coverage months/service level. `stock_on_arrival
+= max(0, current stock + open PO landing before arrival - forecast
+until arrival)`; `target = forecast over coverage + safety stock`
+(safety stock from the forecast's own error distribution via the same
+z-score function the restock alerts use - not a fixed %);
+`suggested PO qty = max(0, target - stock on arrival)`. Every line of
+that calculation is shown, not just the result. "Already late" flags
+when projected stock would go negative before a PO placed today could
+possibly arrive.
 
-**Split-by-store / single-store tab caveat**: an open PO lands at the
-office, not at a specific store, so whenever a series is scoped to one
-store (a store tab, or any non-office series in split-by-store mode) its
-stock projection shows demand draw-down only, with no PO step-up -
-flagged on the page rather than guessing how much of an incoming order
-that store would get before it's actually transferred (that allocation
-is what `/forecast/overview`'s restock §1 computes, after the fact, not
-something decided in advance).
-
-**Manual uplift factors** (`forecast_uplift_factors`) and **events**
-(`forecast_events`) are business-entered, date-ranged, nothing inferred
-from sales. Date ranges rather than a recurring "month of year" because
-Lebaran moves ~11 days earlier every Gregorian year (lunar calendar) - a
-fixed calendar month would silently drift wrong, so each occurrence gets
-its own real start/end date instead of a guessed rule.
-
-**PO planner card**: always the full network (office + every store) for
-one "focus" product - independent of the charts' tab/split-by-store view
-above, with a "Plan for" selector when more than one style is shown.
-Current stock, open PO qty not yet received (from the imported PO
-history), the resolved lead time (late end), and editable coverage
-months/service level. `stock_on_arrival = max(0, current stock + open PO
-landing before arrival - forecast until arrival)`;
-`target = forecast over coverage + safety stock` (safety stock from the
-forecast's own error distribution via the same z-score function the
-restock alerts use - not a fixed %); `suggested PO qty = max(0, target -
-stock on arrival)`. Every line of that calculation is shown, not just
-the result. "What if I order X" projects stock after landing and a
-stockout date. "Already late" flags when projected stock would go
-negative before a PO placed today could possibly arrive.
+**Mini stock chart** (inside the planner): the projected trajectory only
+(current stock minus the forecast's demand rate, plus open POs stepping
+up at their resolved ETA - a thin band between the pessimistic/late-ETA
+and optimistic/early-ETA trajectories), a red safety-stock line, and an
+"Order by \<date\>" marker (`(date stock reaches the safety-stock level)
+- (late lead time)`). "What if I order X" adds the entered quantity as
+one more hypothetical PO (landing at today + lead time min..max) and
+redraws this same chart with it included, rather than only printing a
+number.
 
 **Suggested PO grid**: colour × size, in the PO sheet's own layout
-(style, colour, size, qty, CMT price), for the planner's focus product,
-every qty/price cell editable before exporting. CMT price is pulled from
-the most recent `purchase_order_lines.unit_price_idr` seen for that
-exact colour+size, when one exists. **Export to CSV** (not .xlsx - see
-below) posts the form's current values (including any edits) to
-`/api/forecast/export-po`, so the export always matches what's on
-screen, not a server-recomputed value that could silently differ from an
-edited cell.
-
-**New schema** (`supabase/migrations/0029_po_planning.sql`):
-`forecast_uplift_factors`, `forecast_events`, and
-`stock_level_history` (append-only daily stock snapshot - `stock_levels`
-from migration 0023 is overwritten in place each sync and was never
-meant to answer "was this in stock on day X"; `runStockSync` now also
-appends to this table, so stockout-day detection and the right-hand
-chart's "solid" history only have data from whenever a stock sync first
-ran after this migration - **no backfill**, and the page says so rather
-than showing a clean history as "never stocked out"). A chart style
-(Odoo template) and the lead-time system's product (migration 0027,
-quoted per style on the PO sheet) are still two separate identities -
-`lead_time_name_mappings.odoo_template_id` is where a human links them;
-until a style is linked, the planner can't compute open-PO-qty or a real
-lead time for it and says so (falls back to the global default range)
-rather than showing 0.
+(style, colour, size, qty, CMT price), every qty/price cell editable
+before exporting. CMT price is pulled from the most recent
+`purchase_order_lines.unit_price_idr` seen for that exact colour+size
+(canonicalized through `attribute_aliases`), when one exists. **Export
+to CSV** (not .xlsx - see below) posts the form's current values
+(including any edits) to `/api/forecast/export-po`, so the export always
+matches what's on screen, not a server-recomputed value that could
+silently differ from an edited cell.
 
 **Flagged assumptions**:
+- `attribute_aliases` starts empty - no colour/size names are being
+  merged until the business confirms real aliases ("Bone"/"Off White"
+  or others) and someone adds them.
 - Colour share (trailing 3 months) and size share (trailing 6 months)
-  are combined multiplicatively to allocate a style forecast down to one
-  (colour, size) cell - assumes they're independent, not a measured
-  joint distribution. A colour/size with no trailing sales gets no
-  share (allocation shows blank, not 0 - "no data" isn't "no demand").
+  are combined multiplicatively to allocate a style forecast down to a
+  colour/size selection - assumes they're independent, not a measured
+  joint distribution. No trailing sales for the selected colour/size
+  shows the forecast as 0 with an explicit note, not a silent guess.
 - The forecast engine's residual std-dev is monthly; the planner's and
-  the stock trajectory's safety-stock math needs a daily figure, so it's
+  the mini stock chart's safety-stock math needs a daily figure, so it's
   divided by `sqrt(30)` (variance scales linearly with time) - daily
   demand noise isn't actually measured, only monthly.
 - The stock trajectory draws down at a flat daily rate (no within-month
-  seasonality) and only steps up for POs already in `purchase_orders` -
-  a brand-new "what if" order is layered on top the same way, at its own
-  min/max ETA.
-- No seasonality learning until ≥24 months of data exists, same
-  reasoning as `/forecast/overview`.
+  seasonality) and only steps up for POs already in `purchase_orders`
+  plus the hypothetical "what if" quantity.
+- A chart style (Odoo template) and the lead-time system's product
+  (migration 0027, quoted per style on the PO sheet) are still two
+  separate identities - `lead_time_name_mappings.odoo_template_id` is
+  where a human links them; until linked, the planner can't compute
+  open-PO-qty or a real lead time and says so (falls back to the global
+  default range) rather than showing 0.
+- No seasonality learning until ≥24 months of data exists.
 - Grid edits and "what if" quantities aren't persisted anywhere beyond
   the CSV they're exported in - there's no draft-PO storage yet.
+- Dropped from the previous version of this page, since this round's
+  brief didn't ask for them again: store tabs (now a dropdown),
+  overlaying more than 2 series at once, the side-by-side stock chart
+  with per-series status badges, event/campaign (★) markers, and the
+  same-month-last-year overlay. `stock_level_history` (migration 0029)
+  is still read here (this page's own stockout-day detection,
+  `fetchStockoutDays`). `fetchForecastEvents`/`forecast_events` are not
+  called from anywhere right now - dead code kept rather than deleted,
+  in case the ★ markers come back in a later round.
 
 ## Forecasting overview (/forecast/overview)
 

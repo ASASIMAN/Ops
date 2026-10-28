@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchPeriodDemand } from "./data";
 import type { Period } from "./engine";
+import { canonicalColor, canonicalSize, type AttributeAliasMap } from "./aliases";
 
 /**
  * Style-level data access for the PO Planning Chart (/forecast's main
@@ -139,12 +140,14 @@ function sharesFromRows(
   rows: { productId: number; units: number }[],
   variants: StyleVariant[],
   dimension: "color" | "size",
+  aliases: AttributeAliasMap,
 ): Map<string, number> {
   const variantById = new Map(variants.map((v) => [v.productId, v]));
+  const canonicalize = dimension === "color" ? canonicalColor : canonicalSize;
   const totalsByValue = new Map<string, number>();
   let total = 0;
   for (const r of rows) {
-    const value = variantById.get(r.productId)?.[dimension];
+    const value = canonicalize(variantById.get(r.productId)?.[dimension] ?? null, aliases);
     if (!value) continue;
     totalsByValue.set(value, (totalsByValue.get(value) ?? 0) + r.units);
     total += r.units;
@@ -159,6 +162,7 @@ export async function fetchAllocationShares(
   supabase: SupabaseClient,
   variants: StyleVariant[],
   nowIso: string,
+  aliases: AttributeAliasMap,
 ): Promise<AllocationShares> {
   const productIds = variants.map((v) => v.productId);
   const monthsAgo = (n: number) => new Date(new Date(nowIso).getTime() - n * 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -175,20 +179,21 @@ export async function fetchAllocationShares(
   };
 
   return {
-    colorShare: sharesFromRows(byProduct(colorRows), variants, "color"),
-    sizeShare: sharesFromRows(byProduct(sizeRows), variants, "size"),
+    colorShare: sharesFromRows(byProduct(colorRows), variants, "color", aliases),
+    sizeShare: sharesFromRows(byProduct(sizeRows), variants, "size", aliases),
   };
 }
 
-/** Allocates a style-level unit forecast down to one (colour, size) cell. Returns null (not 0) when either share is unknown - e.g. a brand-new colour/size with no trailing sales yet has no basis for a share, and 0 would misrepresent "no data" as "no demand". */
+/** Allocates a style-level unit forecast down to one (colour, size) cell. `color`/`size` are canonicalized before the lookup, so a variant spelled either way as an alias still finds its share. Returns null (not 0) when either share is unknown - e.g. a brand-new colour/size with no trailing sales yet has no basis for a share, and 0 would misrepresent "no data" as "no demand". */
 export function allocateToVariant(
   styleUnits: number,
   color: string | null,
   size: string | null,
   shares: AllocationShares,
+  aliases: AttributeAliasMap,
 ): number | null {
-  const colorShare = color ? shares.colorShare.get(color) : undefined;
-  const sizeShare = size ? shares.sizeShare.get(size) : undefined;
+  const colorShare = color ? shares.colorShare.get(canonicalColor(color, aliases) ?? color) : undefined;
+  const sizeShare = size ? shares.sizeShare.get(canonicalSize(size, aliases) ?? size) : undefined;
   if (colorShare === undefined || sizeShare === undefined) return null;
   return styleUnits * colorShare * sizeShare;
 }
