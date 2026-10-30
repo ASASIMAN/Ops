@@ -24,6 +24,16 @@ export interface StyleOption {
   name: string;
 }
 
+/**
+ * One row per Odoo template (style) - correct so far, but if two
+ * *different* templates happen to share the exact same name (a real
+ * Odoo data issue: a deleted-and-recreated product, a duplicate entry,
+ * etc.), a plain-text `<datalist>` would show two indistinguishable
+ * options. Picking either one would always resolve to whichever template
+ * sorts first, silently making the other unreachable - so any name with
+ * more than one template id gets the id appended to every one of its
+ * entries, never merged into a single guessed "real" one.
+ */
 export async function fetchStyleOptions(supabase: SupabaseClient): Promise<StyleOption[]> {
   const { data } = await supabase
     .from("products")
@@ -34,8 +44,19 @@ export async function fetchStyleOptions(supabase: SupabaseClient): Promise<Style
   for (const r of data ?? []) {
     if (!byTemplate.has(r.odoo_template_id)) byTemplate.set(r.odoo_template_id, r.name);
   }
+
+  const templateIdsByName = new Map<string, number[]>();
+  for (const [templateId, name] of byTemplate) {
+    const list = templateIdsByName.get(name) ?? [];
+    list.push(templateId);
+    templateIdsByName.set(name, list);
+  }
+
   return Array.from(byTemplate.entries())
-    .map(([templateId, name]) => ({ templateId, name }))
+    .map(([templateId, name]) => ({
+      templateId,
+      name: (templateIdsByName.get(name)?.length ?? 1) > 1 ? `${name} (#${templateId})` : name,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
