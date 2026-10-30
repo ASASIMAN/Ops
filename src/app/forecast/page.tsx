@@ -438,6 +438,11 @@ export default async function ForecastChartPage({
       {leadTimeSchemaOk && primaryLeadTimeResolution.usedFallback && <AssumptionNote>{primaryLeadTimeResolution.detail}</AssumptionNote>}
       {productNotFound && <AssumptionNote>No product named &quot;{params.product}&quot; - showing {primaryStyle.name} instead.</AssumptionNote>}
       {compareNotFound && <AssumptionNote>No product named &quot;{params.compareProduct}&quot; to compare - ignored.</AssumptionNote>}
+      {primaryStyle.name.includes(" (#") && (
+        <AssumptionNote>
+          Another product in Odoo shares this exact name under a different template id - the id is appended here so both are reachable and this one isn&apos;t silently merged with the other. Worth checking in Odoo whether one is a duplicate.
+        </AssumptionNote>
+      )}
 
       {/* Filters */}
       <form className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-zinc-200 p-4 text-xs dark:border-zinc-800" method="get">

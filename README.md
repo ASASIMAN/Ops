@@ -487,6 +487,15 @@ matches what's on screen, not a server-recomputed value that could
 silently differ from an edited cell.
 
 **Flagged assumptions**:
+- Two different Odoo templates sharing the exact same name (a real Odoo
+  data issue - a deleted-and-recreated product, a true duplicate, etc.)
+  would otherwise be indistinguishable in a plain-text `<datalist>`, and
+  picking either one would always resolve to whichever sorts first,
+  silently making the other unreachable. `fetchStyleOptions`
+  (`src/lib/forecast/style.ts`) appends the template id to every entry
+  sharing a colliding name instead of guessing they're the same style -
+  the page flags it when the current selection is one of these. Worth
+  checking in Odoo whether it's a genuine duplicate.
 - `attribute_aliases` starts empty - no colour/size names are being
   merged until the business confirms real aliases ("Bone"/"Off White"
   or others) and someone adds them.
