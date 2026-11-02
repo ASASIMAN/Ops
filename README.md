@@ -486,16 +486,33 @@ to CSV** (not .xlsx - see below) posts the form's current values
 matches what's on screen, not a server-recomputed value that could
 silently differ from an edited cell.
 
+**Merging duplicate Odoo templates** (`style_merges`, migration 0032):
+confirmed by the business (2026-11-02) - a company-profile change in
+Odoo re-created a batch of products under new template ids, duplicating
+them rather than updating in place. `style_merges` is an explicit
+`merged_template_id -> canonical_template_id` mapping, seeded once from
+every name collision that existed in `products` at migration time (the
+lower template id per name wins as canonical - stable, not "more
+correct"). Every function that queries by template id
+(`fetchStyleVariants`, `fetchUpliftFactors`, `fetchForecastEvents`,
+`fetchLinkedLeadTimeProductId`) resolves through this table first via
+`templateIdGroup()`/`toCanonicalTemplateId()`
+(`src/lib/forecast/style.ts`), so a merged duplicate's own sales/stock/
+lead-time rows are included rather than silently dropped. This is a
+one-time explicit list, not a standing "same name = same product" rule -
+a *future* name collision not in this table still gets flagged (see
+below) rather than auto-merged, since it could just as easily be an
+unrelated duplicate someone should look at.
+
 **Flagged assumptions**:
-- Two different Odoo templates sharing the exact same name (a real Odoo
-  data issue - a deleted-and-recreated product, a true duplicate, etc.)
-  would otherwise be indistinguishable in a plain-text `<datalist>`, and
-  picking either one would always resolve to whichever sorts first,
-  silently making the other unreachable. `fetchStyleOptions`
-  (`src/lib/forecast/style.ts`) appends the template id to every entry
-  sharing a colliding name instead of guessing they're the same style -
-  the page flags it when the current selection is one of these. Worth
-  checking in Odoo whether it's a genuine duplicate.
+- A name collision **not** explained by a `style_merges` row - two
+  different, genuinely unrelated templates that happen to share a name -
+  would otherwise be indistinguishable in a plain-text `<datalist>`,
+  silently making one of them unreachable (picking either always
+  resolves to whichever sorts first). `fetchStyleOptions` appends the
+  template id to every entry sharing an unexplained colliding name
+  instead of guessing they're the same style; the page flags it when the
+  current selection is one of these.
 - `attribute_aliases` starts empty - no colour/size names are being
   merged until the business confirms real aliases ("Bone"/"Off White"
   or others) and someone adds them.

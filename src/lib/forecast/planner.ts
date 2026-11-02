@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { StyleVariant } from "./style";
-import { allocateToVariant, type AllocationShares } from "./style";
+import type { StyleVariant, StyleMergeMap } from "./style";
+import { allocateToVariant, templateIdGroup, type AllocationShares } from "./style";
 import { canonicalColor, canonicalSize, type AttributeAliasMap } from "./aliases";
 import { resolveEtaForPo, type LeadTimeRange } from "@/lib/leadtime/resolve";
 import { zScoreForServiceLevel } from "./restock";
@@ -16,11 +16,12 @@ import { zScoreForServiceLevel } from "./restock";
 export async function fetchLinkedLeadTimeProductId(
   supabase: SupabaseClient,
   templateId: number,
+  merges: StyleMergeMap,
 ): Promise<number | null> {
   const { data } = await supabase
     .from("lead_time_name_mappings")
     .select("lead_time_product_id")
-    .eq("odoo_template_id", templateId)
+    .in("odoo_template_id", templateIdGroup(templateId, merges))
     .not("lead_time_product_id", "is", null)
     .limit(1)
     .maybeSingle();

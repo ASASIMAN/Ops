@@ -7,6 +7,7 @@ import { resolveProductLeadTime, type LeadTimeRange, type LeadTimeSettings } fro
 import { fetchAttributeAliases, canonicalColor, canonicalSize, type AttributeAliasMap } from "@/lib/forecast/aliases";
 import {
   hasPoPlanningSchema,
+  fetchStyleMerges,
   fetchStyleOptions,
   fetchStyleVariants,
   fetchStyleMonthlyNetUnits,
@@ -168,11 +169,12 @@ export default async function ForecastChartPage({
   }
 
   const aliases: AttributeAliasMap = await fetchAttributeAliases(supabase);
+  const merges = await fetchStyleMerges(supabase);
   const { data: storeRows } = await supabase.from("stores").select("id, name").eq("active", true).order("name");
   const HIDDEN_STORE_NAMES = new Set(["nsa"]);
   const stores = (storeRows ?? []).filter((s) => !HIDDEN_STORE_NAMES.has(s.name.trim().toLowerCase()));
 
-  const styleOptions = await fetchStyleOptions(supabase);
+  const styleOptions = await fetchStyleOptions(supabase, merges);
   if (!styleOptions.length) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-16">
@@ -203,7 +205,7 @@ export default async function ForecastChartPage({
   const currentMonthIso = monthStart(today, 0);
   const historyFrom = pastMonths === 0 ? "2000-01-01" : monthStart(today, -pastMonths);
 
-  const primaryVariants = await fetchStyleVariants(supabase, primaryStyle.templateId);
+  const primaryVariants = await fetchStyleVariants(supabase, primaryStyle.templateId, merges);
   const colorOptions = Array.from(new Set(primaryVariants.map((v) => canonicalColor(v.color, aliases)).filter((c): c is string => !!c))).sort();
   const sizeOptions = Array.from(new Set(primaryVariants.map((v) => canonicalSize(v.size, aliases)).filter((s): s is string => !!s))).sort();
   const colorFilter = params.color || null;
@@ -222,7 +224,7 @@ export default async function ForecastChartPage({
     : [new Map(), new Map()];
 
   async function resolveLeadTime(templateId: number): Promise<{ productId: number | null; resolution: LeadTimeRange }> {
-    const productId = leadTimeSchemaOk ? await fetchLinkedLeadTimeProductId(supabase, templateId) : null;
+    const productId = leadTimeSchemaOk ? await fetchLinkedLeadTimeProductId(supabase, templateId, merges) : null;
     const resolution: LeadTimeRange = productId
       ? resolveProductLeadTime(estimatesByProduct.get(productId) ?? [], measuredByProduct.get(productId) ?? [], leadTimeSettings)
       : {
@@ -262,7 +264,7 @@ export default async function ForecastChartPage({
       drilldownFraction = colorFrac === undefined || sizeFrac === undefined ? null : colorFrac * sizeFrac;
     }
 
-    const upliftFactors = poPlanningSchemaOk ? await fetchUpliftFactors(supabase, style.templateId) : [];
+    const upliftFactors = poPlanningSchemaOk ? await fetchUpliftFactors(supabase, style.templateId, merges) : [];
     const upliftedForecast = forecastResult.forecast.map((f) => {
       const totalFraction = upliftFactors.reduce((sum, factor) => sum + upliftOverlapFraction(f.date, factor) * (factor.upliftPct / 100), 0);
       const multiplier = (1 + totalFraction) * (drilldownFraction ?? 0);
@@ -330,7 +332,7 @@ export default async function ForecastChartPage({
   const primarySeries = await buildSeries("primary", primaryStyle.name, primaryStyle, primaryVariants);
   let compareSeries: SeriesData | null = null;
   if (compareStyle && compareStyle.templateId !== primaryStyle.templateId) {
-    const compareVariants = await fetchStyleVariants(supabase, compareStyle.templateId);
+    const compareVariants = await fetchStyleVariants(supabase, compareStyle.templateId, merges);
     compareSeries = await buildSeries("compare", compareStyle.name, compareStyle, compareVariants);
   }
   const series = [primarySeries, ...(compareSeries ? [compareSeries] : [])];
