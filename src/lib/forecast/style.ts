@@ -25,16 +25,47 @@ export interface StyleOption {
 }
 
 /**
- * One row per Odoo template (style) - correct so far, but if two
- * *different* templates happen to share the exact same name (a real
- * Odoo data issue: a deleted-and-recreated product, a duplicate entry,
- * etc.), a plain-text `<datalist>` would show two indistinguishable
- * options. Picking either one would always resolve to whichever template
- * sorts first, silently making the other unreachable - so any name with
- * more than one template id gets the id appended to every one of its
- * entries, never merged into a single guessed "real" one.
+ * Explicit "these Odoo templates are the same product" merges (migration
+ * 0032) - e.g. a company-profile change in Odoo re-creating a product
+ * under a new template id. Fetched once per page load and threaded
+ * through every function below that queries by template id, so a merged
+ * id always rolls up to its canonical one rather than each call site
+ * re-deciding it independently.
  */
-export async function fetchStyleOptions(supabase: SupabaseClient): Promise<StyleOption[]> {
+export interface StyleMergeMap {
+  /** merged (non-canonical) template id -> the canonical id it rolls up to. */
+  canonicalByRaw: Map<number, number>;
+}
+
+export async function fetchStyleMerges(supabase: SupabaseClient): Promise<StyleMergeMap> {
+  const { data } = await supabase.from("style_merges").select("canonical_template_id, merged_template_id");
+  const canonicalByRaw = new Map<number, number>();
+  for (const r of data ?? []) canonicalByRaw.set(r.merged_template_id, r.canonical_template_id);
+  return { canonicalByRaw };
+}
+
+export function toCanonicalTemplateId(templateId: number, merges: StyleMergeMap): number {
+  return merges.canonicalByRaw.get(templateId) ?? templateId;
+}
+
+/** Every raw template id that rolls up to this canonical one, including itself - what to query `products`/`forecast_uplift_factors`/etc. by, instead of the canonical id alone, so a merged duplicate's own rows aren't silently excluded. */
+export function templateIdGroup(canonicalTemplateId: number, merges: StyleMergeMap): number[] {
+  const merged = Array.from(merges.canonicalByRaw.entries())
+    .filter(([, canonical]) => canonical === canonicalTemplateId)
+    .map(([raw]) => raw);
+  return [canonicalTemplateId, ...merged];
+}
+
+/**
+ * One row per canonical Odoo template (style), after resolving
+ * `style_merges`. Any name collision that *isn't* explained by an entry
+ * in that table - a different, unexplained duplicate - still gets its
+ * template id appended to every one of its entries instead of being
+ * merged into a single guessed "real" one. A plain-text `<datalist>`
+ * can't tell two identically-labelled options apart, so an unflagged
+ * collision would make one of them silently unreachable.
+ */
+export async function fetchStyleOptions(supabase: SupabaseClient, merges: StyleMergeMap): Promise<StyleOption[]> {
   const { data } = await supabase
     .from("products")
     .select("odoo_template_id, name")
@@ -42,7 +73,8 @@ export async function fetchStyleOptions(supabase: SupabaseClient): Promise<Style
 
   const byTemplate = new Map<number, string>();
   for (const r of data ?? []) {
-    if (!byTemplate.has(r.odoo_template_id)) byTemplate.set(r.odoo_template_id, r.name);
+    const canonical = toCanonicalTemplateId(r.odoo_template_id, merges);
+    if (!byTemplate.has(canonical)) byTemplate.set(canonical, r.name);
   }
 
   const templateIdsByName = new Map<string, number[]>();
@@ -69,11 +101,12 @@ export interface StyleVariant {
 export async function fetchStyleVariants(
   supabase: SupabaseClient,
   templateId: number,
+  merges: StyleMergeMap,
 ): Promise<StyleVariant[]> {
   const { data } = await supabase
     .from("products")
     .select("id, color, size")
-    .eq("odoo_template_id", templateId);
+    .in("odoo_template_id", templateIdGroup(templateId, merges));
   return (data ?? []).map((r) => ({ productId: r.id, color: r.color, size: r.size }));
 }
 
@@ -351,11 +384,13 @@ export interface UpliftFactor {
 export async function fetchUpliftFactors(
   supabase: SupabaseClient,
   templateId: number,
+  merges: StyleMergeMap,
 ): Promise<UpliftFactor[]> {
+  const group = templateIdGroup(templateId, merges);
   const { data } = await supabase
     .from("forecast_uplift_factors")
     .select("label, start_date, end_date, uplift_pct, note")
-    .or(`product_template_id.eq.${templateId},product_template_id.is.null`)
+    .or(`product_template_id.in.(${group.join(",")}),product_template_id.is.null`)
     .order("start_date");
   return (data ?? []).map((r) => ({
     label: r.label,
@@ -393,11 +428,13 @@ export async function fetchForecastEvents(
   templateId: number,
   fromIso: string,
   toIso: string,
+  merges: StyleMergeMap,
 ): Promise<ForecastEvent[]> {
+  const group = templateIdGroup(templateId, merges);
   const { data } = await supabase
     .from("forecast_events")
     .select("event_date, label, note")
-    .or(`product_template_id.eq.${templateId},product_template_id.is.null`)
+    .or(`product_template_id.in.(${group.join(",")}),product_template_id.is.null`)
     .gte("event_date", fromIso)
     .lt("event_date", toIso)
     .order("event_date");
