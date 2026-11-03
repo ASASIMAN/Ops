@@ -107,6 +107,29 @@ function toTextOrNull(value: string | undefined): string | null {
   return trimmed;
 }
 
+/**
+ * "Last significant edit" is usually a real ISO timestamp
+ * ("2026-10-21T13:03:37+0800"), but Ads Manager exports a literal "0"
+ * for ads old enough to predate whatever it tracks edits from (seen
+ * across ~20 rows in one real export, all ads from early-to-mid 2025).
+ * That "0" was going straight into a `timestamptz` column - Postgres
+ * rejects it outright ("date/time field value out of range"), failing
+ * the entire batch upsert, not just that row.
+ *
+ * `Date.parse`/`new Date(...)` is too lenient to catch this on its own
+ * - `new Date("0")` happily parses as 1 Jan 2000 rather than throwing,
+ * which would silently fabricate a plausible-looking date instead of
+ * rejecting the placeholder. So this requires the real shape of an ISO
+ * timestamp (a "T" separator, which "0" and similar junk never have) on
+ * top of actually parsing - anything that fails either check becomes
+ * null, "no edit timestamp on file" rather than a guessed one.
+ */
+function toTimestampOrNull(value: string | undefined): string | null {
+  const text = toTextOrNull(value);
+  if (text === null || !text.includes("T")) return null;
+  return Number.isNaN(new Date(text).getTime()) ? null : text;
+}
+
 /** cold/warm isn't a column - infer it from the ad set name. */
 function inferTemperature(adSetName: string): Temperature {
   const lower = adSetName.toLowerCase();
@@ -182,7 +205,7 @@ export function parseMetaAdsCsv(csvText: string): MetaAdsParseResult {
       attributionSetting: toTextOrNull(row["Attribution setting"]),
       bid: toNumberOrNull(row["Bid"]),
       bidType: toTextOrNull(row["Bid type"]),
-      lastSignificantEdit: toTextOrNull(row["Last significant edit"]),
+      lastSignificantEdit: toTimestampOrNull(row["Last significant edit"]),
       qualityRanking: toTextOrNull(row["Quality ranking"]),
       engagementRanking: toTextOrNull(row["Engagement rate ranking"]),
       conversionRanking: toTextOrNull(row["Conversion rate ranking"]),

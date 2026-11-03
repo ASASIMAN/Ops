@@ -28,7 +28,16 @@ export async function importMetaAdsAction(formData: FormData) {
 
   const supabase = createAdminClient();
 
-  const { reportingStart, reportingEnd } = await ingestMetaAdsRows(supabase, rows);
+  let reportingStart: string;
+  let reportingEnd: string;
+  try {
+    ({ reportingStart, reportingEnd } = await ingestMetaAdsRows(supabase, rows));
+  } catch (e) {
+    redirect(
+      "/marketing/import?error=" +
+        encodeURIComponent(e instanceof Error ? e.message : String(e)),
+    );
+  }
 
   await supabase.from("ad_imports").insert({
     filename: file.name,

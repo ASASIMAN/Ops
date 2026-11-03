@@ -44,9 +44,16 @@ export async function uploadCreativeBriefMonthAction(formData: FormData) {
           ),
       );
     }
-    const ingested = await ingestMetaAdsRows(supabase, rows);
-    reportingStart = ingested.reportingStart;
-    reportingEnd = ingested.reportingEnd;
+    try {
+      const ingested = await ingestMetaAdsRows(supabase, rows);
+      reportingStart = ingested.reportingStart;
+      reportingEnd = ingested.reportingEnd;
+    } catch (e) {
+      redirect(
+        "/marketing/creative-brief?error=" +
+          encodeURIComponent(e instanceof Error ? e.message : String(e)),
+      );
+    }
   }
 
   const reviewMd = (await readTextIfPresent(formData.get("reviewMd"))) ?? existing?.review_md ?? null;
