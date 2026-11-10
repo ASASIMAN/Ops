@@ -744,40 +744,127 @@ export default async function MarketingOverviewPage({
           ];
           const forecastStartIdx = months.length;
 
+          // In-store revenue runs 10-50x bigger than either spend or
+          // online sales at this account's scale - plotting all three on
+          // one shared Rupiah axis crushes the two smaller lines flat
+          // against zero (that's what "fixed" means below: a scale that
+          // actually fits the series drawn on it). Rather than a
+          // dual-axis chart (two different units sharing one plot, which
+          // reads as two different charts pretending to be one), this is
+          // three small-multiple panels stacked on a shared timeline -
+          // each with its own single, correctly-scaled axis.
           const CHART_W = 820;
-          const CHART_H = 320;
-          const PAD_L = 64;
-          const PAD_R = 50;
-          const PAD_T = 28;
+          const PAD_L = 70;
+          const PAD_R = 16;
+          const PAD_T = 22;
           const PAD_B = 32;
+          const PANEL_H = 190;
           const plotW = CHART_W - PAD_L - PAD_R;
-          const plotH = CHART_H - PAD_T - PAD_B;
+          const plotH = PANEL_H - PAD_T - PAD_B;
           const xFor = (i: number) =>
             PAD_L + (xPoints.length <= 1 ? 0 : (i / (xPoints.length - 1)) * plotW);
 
-          const maxRupiah = Math.max(
+          const renderGrid = (max: number, step: number, yFor: (v: number) => number, format: (v: number) => string) =>
+            [0, 1, 2, 3, 4].map((i) => {
+              const v = step * i;
+              const y = yFor(v);
+              return (
+                <g key={i}>
+                  <line
+                    x1={PAD_L}
+                    x2={CHART_W - PAD_R}
+                    y1={y}
+                    y2={y}
+                    stroke="currentColor"
+                    className="text-zinc-100 dark:text-zinc-900"
+                    strokeWidth={1}
+                  />
+                  <text x={PAD_L - 6} y={y + 3} textAnchor="end" className="fill-zinc-400 text-[9px]">
+                    {format(v)}
+                  </text>
+                </g>
+              );
+            });
+
+          const renderXAxis = () =>
+            xPoints.map((p, i) => {
+              const d = new Date(`${p.date}T00:00:00Z`);
+              const show = d.getUTCMonth() === 0 || i === 0 || i === xPoints.length - 1 || i % 3 === 0;
+              if (!show) return null;
+              return (
+                <text
+                  key={p.date}
+                  x={xFor(i)}
+                  y={PAD_T + plotH + 14}
+                  textAnchor="middle"
+                  className={`text-[9px] ${p.isForecast ? "fill-zinc-300 italic dark:fill-zinc-700" : "fill-zinc-400"}`}
+                >
+                  {d.getUTCMonth() === 0 ? MONTH_LABEL.format(d) : MONTH_ONLY_LABEL.format(d)}
+                </text>
+              );
+            });
+
+          const forecastDivider = (
+            <line
+              x1={xFor(forecastStartIdx - 1)}
+              x2={xFor(forecastStartIdx - 1)}
+              y1={PAD_T}
+              y2={PAD_T + plotH}
+              stroke="currentColor"
+              className="text-zinc-300 dark:text-zinc-700"
+              strokeWidth={1}
+              strokeDasharray="2 2"
+            />
+          );
+
+          // Panel 1 - spend vs. online sales (comparable order of magnitude).
+          const maxRupiah1 = Math.max(
             1,
             ...spendSeries.map((p) => p.value),
             ...salesSeries.map((p) => p.value),
-            ...offlineMonths.map((m) => m.metrics.offline_sales_idr_real!),
             ...salesForecast.forecast.map((f) => f.high),
           );
-          const rupiahStep = niceStep(maxRupiah / 4);
-          const rupiahMax = rupiahStep * 4;
-          const yForRupiah = (v: number) =>
-            PAD_T + plotH - (Math.min(v, rupiahMax) / rupiahMax) * plotH;
-
-          const maxPct = Math.max(1, ...seasonIndex.map((p) => p.indexPct)) * 1.15;
-          const yForPct = (v: number) => PAD_T + plotH - (Math.min(v, maxPct) / maxPct) * plotH;
+          const step1 = niceStep(maxRupiah1 / 4);
+          const max1 = step1 * 4;
+          const yFor1 = (v: number) => PAD_T + plotH - (Math.min(v, max1) / max1) * plotH;
 
           const spendPts: Point[] = months.map((m, i) => ({
             x: xFor(i),
-            y: yForRupiah(m.metrics.total_spend_idr ?? 0),
+            y: yFor1(m.metrics.total_spend_idr ?? 0),
           }));
           const salesPts: Point[] = months.map((m, i) => ({
             x: xFor(i),
-            y: yForRupiah(m.metrics.online_sales_idr ?? 0),
+            y: yFor1(m.metrics.online_sales_idr ?? 0),
           }));
+          const lastRealSales = salesSeries[salesSeries.length - 1]?.value ?? 0;
+          const forecastLine: Point[] = [
+            { x: xFor(forecastStartIdx - 1), y: yFor1(lastRealSales) },
+            ...salesForecast.forecast.map((f, i) => ({
+              x: xFor(forecastStartIdx + i),
+              y: yFor1(f.expected),
+            })),
+          ];
+          const forecastBandTop: Point[] = [
+            { x: xFor(forecastStartIdx - 1), y: yFor1(lastRealSales) },
+            ...salesForecast.forecast.map((f, i) => ({
+              x: xFor(forecastStartIdx + i),
+              y: yFor1(f.high),
+            })),
+          ];
+          const forecastBandBottom: Point[] = [
+            { x: xFor(forecastStartIdx - 1), y: yFor1(lastRealSales) },
+            ...salesForecast.forecast.map((f, i) => ({
+              x: xFor(forecastStartIdx + i),
+              y: yFor1(f.low),
+            })),
+          ];
+
+          // Panel 2 - in-store (offline) sales, on its own much larger scale.
+          const maxRupiah2 = Math.max(1, ...offlineMonths.map((m) => m.metrics.offline_sales_idr_real!));
+          const step2 = niceStep(maxRupiah2 / 4);
+          const max2 = step2 * 4;
+          const yFor2 = (v: number) => PAD_T + plotH - (Math.min(v, max2) / max2) * plotH;
+
           // Broken into segments rather than one continuous line, so a
           // gap in real Odoo sync coverage shows as a gap, not an
           // interpolated guess across months with no data.
@@ -790,33 +877,25 @@ export default async function MarketingOverviewPage({
                 if (current.length) offlineSegments.push(current);
                 current = [];
               } else {
-                current.push({ x: xFor(i), y: yForRupiah(v) });
+                current.push({ x: xFor(i), y: yFor2(v) });
               }
             });
             if (current.length) offlineSegments.push(current);
           }
-          const lastRealSales = salesSeries[salesSeries.length - 1]?.value ?? 0;
-          const forecastLine: Point[] = [
-            { x: xFor(forecastStartIdx - 1), y: yForRupiah(lastRealSales) },
-            ...salesForecast.forecast.map((f, i) => ({
-              x: xFor(forecastStartIdx + i),
-              y: yForRupiah(f.expected),
-            })),
-          ];
-          const forecastBandTop: Point[] = [
-            { x: xFor(forecastStartIdx - 1), y: yForRupiah(lastRealSales) },
-            ...salesForecast.forecast.map((f, i) => ({
-              x: xFor(forecastStartIdx + i),
-              y: yForRupiah(f.high),
-            })),
-          ];
-          const forecastBandBottom: Point[] = [
-            { x: xFor(forecastStartIdx - 1), y: yForRupiah(lastRealSales) },
-            ...salesForecast.forecast.map((f, i) => ({
-              x: xFor(forecastStartIdx + i),
-              y: yForRupiah(f.low),
-            })),
-          ];
+
+          // Panel 3 - Bali tourist season, as a % share (its own natural unit).
+          const maxPctRaw = Math.max(1, ...seasonIndex.map((p) => p.indexPct)) * 1.15;
+          const step3 = niceStep(maxPctRaw / 4);
+          const max3 = step3 * 4;
+          const yFor3 = (v: number) => PAD_T + plotH - (Math.min(v, max3) / max3) * plotH;
+
+          const seasonPts: Point[] = xPoints.map((p, i) => {
+            const m = Number(p.date.slice(5, 7));
+            return { x: xFor(i), y: yFor3(seasonByMonth.get(m)?.indexPct ?? 0) };
+          });
+          const seasonAreaPath = hasSeasonData
+            ? `${linePath(seasonPts)} L${xFor(xPoints.length - 1)},${yFor3(0)} L${xFor(0)},${yFor3(0)} Z`
+            : "";
 
           // Most recent pair of CONSECUTIVE real months with both spend
           // and in-store revenue on file - a plain MoM comparison, not a
@@ -848,14 +927,6 @@ export default async function MarketingOverviewPage({
             break;
           }
 
-          const seasonPts: Point[] = xPoints.map((p, i) => {
-            const m = Number(p.date.slice(5, 7));
-            return { x: xFor(i), y: yForPct(seasonByMonth.get(m)?.indexPct ?? 0) };
-          });
-          const seasonAreaPath = hasSeasonData
-            ? `${linePath(seasonPts)} L${xFor(xPoints.length - 1)},${yForPct(0)} L${xFor(0)},${yForPct(0)} Z`
-            : "";
-
           const sortedBySeasonality = [...seasonIndex].sort((a, b) => b.indexPct - a.indexPct);
           const highMonths = sortedBySeasonality
             .filter((p) => p.indexPct > EVEN_SHARE_PCT + 0.5)
@@ -874,108 +945,51 @@ export default async function MarketingOverviewPage({
                 Spend, online &amp; in-store sales, and Bali&apos;s tourist season
               </h2>
               <p className="mt-1 text-xs text-zinc-500">
-                Real marketing spend, online sales, and in-store (offline) revenue by month (left
-                axis), against Bali&apos;s historical tourist-season pattern (right axis - share
-                of a typical year&apos;s foreign arrivals via Ngurah Rai, averaged across{" "}
-                {yearsAveraged} real year{yearsAveraged === 1 ? "" : "s"}
-                {hasSeasonData ? "" : " - not seeded yet"}). The dashed line is a{" "}
-                {salesForecast.forecast.length}-month online-sales projection (same trend-based
-                method <Link href="/forecast" className="underline">/forecast</Link> uses) - a
-                projection, not a target. In-store revenue is the real Odoo POS sync (same source
-                as /operations), not the order-count column on Financials - it only covers months
-                the sync has actually run for, so a gap in that line means no synced data yet, not
-                zero sales.
+                Real marketing spend, online sales, in-store (offline) revenue, and Bali&apos;s
+                historical tourist-season pattern (share of a typical year&apos;s foreign arrivals
+                via Ngurah Rai, averaged across {yearsAveraged} real year{yearsAveraged === 1 ? "" : "s"}
+                {hasSeasonData ? "" : " - not seeded yet"}) - shown as three panels below rather
+                than one shared axis, because in-store revenue runs tens of times bigger than
+                either spend or online sales: forced onto one scale, the smaller two flatten to
+                nothing. Each panel keeps its own correctly-fitted scale; they share the same
+                timeline so you can still read them together, month by month. The dashed line in
+                the first panel is a {salesForecast.forecast.length}-month online-sales projection
+                (same trend-based method <Link href="/forecast" className="underline">/forecast</Link>{" "}
+                uses) - a projection, not a target. In-store revenue is the real Odoo POS sync
+                (same source as /operations), not the order-count column on Financials - it only
+                covers months the sync has actually run for, so a gap in that panel&apos;s line
+                means no synced data yet, not zero sales.
               </p>
 
-              {!hasSeasonData && (
-                <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
-                  Run <code>supabase/migrations/0038_bali_tourist_arrivals.sql</code> to show the
-                  tourist-season line and the busy/quiet-month read below.
-                </p>
-              )}
               {!hasOfflineRevenueData && (
                 <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
-                  No in-store revenue line yet - either the Odoo sync hasn&apos;t run for any month
+                  No in-store revenue panel yet - either the Odoo sync hasn&apos;t run for any month
                   in this range, or <code>supabase/migrations/0022_variants_and_sales_rollups.sql</code>{" "}
                   hasn&apos;t been run. Check{" "}
                   <Link href="/operations" className="underline">/operations</Link>&apos;s last
                   sync status.
                 </p>
               )}
+              {!hasSeasonData && (
+                <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
+                  Run <code>supabase/migrations/0038_bali_tourist_arrivals.sql</code> to show the
+                  tourist-season panel and the busy/quiet-month read below.
+                </p>
+              )}
 
+              <p className="mt-4 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                Marketing spend vs. online sales
+              </p>
               <svg
-                viewBox={`0 0 ${CHART_W} ${CHART_H}`}
-                className="mt-3 h-auto w-full"
+                viewBox={`0 0 ${CHART_W} ${PANEL_H}`}
+                className="mt-1 h-auto w-full"
                 role="img"
-                aria-label="Marketing spend, online sales, projected sales, and Bali tourist season by month"
+                aria-label="Marketing spend and online sales by month, with a 3-month projection"
               >
-                {[0, 1, 2, 3, 4].map((i) => {
-                  const v = rupiahStep * i;
-                  return (
-                    <g key={`l-${i}`}>
-                      <line
-                        x1={PAD_L}
-                        x2={CHART_W - PAD_R}
-                        y1={yForRupiah(v)}
-                        y2={yForRupiah(v)}
-                        stroke="currentColor"
-                        className="text-zinc-100 dark:text-zinc-900"
-                        strokeWidth={1}
-                      />
-                      <text x={PAD_L - 6} y={yForRupiah(v) + 3} textAnchor="end" className="fill-zinc-400 text-[9px]">
-                        {formatRupiahCompact(v)}
-                      </text>
-                    </g>
-                  );
-                })}
-                {hasSeasonData &&
-                  [0, 1, 2, 3, 4].map((i) => {
-                    const v = (maxPct / 4) * i;
-                    return (
-                      <text
-                        key={`r-${i}`}
-                        x={CHART_W - PAD_R + 6}
-                        y={yForPct(v) + 3}
-                        textAnchor="start"
-                        className="fill-zinc-400 text-[9px]"
-                      >
-                        {v.toFixed(1)}%
-                      </text>
-                    );
-                  })}
-                <line
-                  x1={xFor(forecastStartIdx - 1)}
-                  x2={xFor(forecastStartIdx - 1)}
-                  y1={PAD_T}
-                  y2={PAD_T + plotH}
-                  stroke="currentColor"
-                  className="text-zinc-300 dark:text-zinc-700"
-                  strokeWidth={1}
-                  strokeDasharray="2 2"
-                />
-                {hasSeasonData && (
-                  <>
-                    <path d={seasonAreaPath} fill={paletteVar("season")} opacity={0.12} />
-                    <path
-                      d={linePath(seasonPts)}
-                      fill="none"
-                      stroke={paletteVar("season")}
-                      strokeWidth={1.5}
-                      strokeDasharray="2 2"
-                    />
-                  </>
-                )}
+                {renderGrid(max1, step1, yFor1, formatRupiahCompact)}
+                {forecastDivider}
                 <path d={linePath(spendPts)} fill="none" stroke={paletteVar("spend")} strokeWidth={2} />
                 <path d={linePath(salesPts)} fill="none" stroke={paletteVar("sales")} strokeWidth={2} />
-                {offlineSegments.map((seg, i) => (
-                  <path
-                    key={`offline-${i}`}
-                    d={linePath(seg)}
-                    fill="none"
-                    stroke={paletteVar("offline")}
-                    strokeWidth={2}
-                  />
-                ))}
                 <path d={bandPath(forecastBandTop, forecastBandBottom)} fill={paletteVar("sales")} opacity={0.15} />
                 <path
                   d={linePath(forecastLine)}
@@ -984,25 +998,9 @@ export default async function MarketingOverviewPage({
                   strokeWidth={2}
                   strokeDasharray="5 4"
                 />
-                {xPoints.map((p, i) => {
-                  const d = new Date(`${p.date}T00:00:00Z`);
-                  const show = d.getUTCMonth() === 0 || i === 0 || i === xPoints.length - 1 || i % 3 === 0;
-                  if (!show) return null;
-                  return (
-                    <text
-                      key={p.date}
-                      x={xFor(i)}
-                      y={CHART_H - PAD_B + 14}
-                      textAnchor="middle"
-                      className={`text-[9px] ${p.isForecast ? "fill-zinc-300 italic dark:fill-zinc-700" : "fill-zinc-400"}`}
-                    >
-                      {d.getUTCMonth() === 0 ? MONTH_LABEL.format(d) : MONTH_ONLY_LABEL.format(d)}
-                    </text>
-                  );
-                })}
+                {renderXAxis()}
               </svg>
-
-              <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+              <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 text-xs">
                 <span className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ background: paletteVar("spend") }} />
                   Total spend
@@ -1011,19 +1009,72 @@ export default async function MarketingOverviewPage({
                   <span className="h-2.5 w-2.5 rounded-full" style={{ background: paletteVar("sales") }} />
                   Online sales (dashed = projected)
                 </span>
-                {hasOfflineRevenueData && (
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: paletteVar("offline") }} />
-                    In-store sales (real Odoo sync, gaps = not synced that month)
-                  </span>
-                )}
-                {hasSeasonData && (
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: paletteVar("season") }} />
-                    Bali tourist season (right axis)
-                  </span>
-                )}
               </div>
+
+              {hasOfflineRevenueData && (
+                <>
+                  <p className="mt-5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                    In-store (offline) sales
+                  </p>
+                  <svg
+                    viewBox={`0 0 ${CHART_W} ${PANEL_H}`}
+                    className="mt-1 h-auto w-full"
+                    role="img"
+                    aria-label="In-store sales by month, from the real Odoo point-of-sale sync"
+                  >
+                    {renderGrid(max2, step2, yFor2, formatRupiahCompact)}
+                    {forecastDivider}
+                    {offlineSegments.map((seg, i) => (
+                      <path
+                        key={`offline-${i}`}
+                        d={linePath(seg)}
+                        fill="none"
+                        stroke={paletteVar("offline")}
+                        strokeWidth={2}
+                      />
+                    ))}
+                    {renderXAxis()}
+                  </svg>
+                  <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: paletteVar("offline") }} />
+                      In-store sales (real Odoo sync, gaps = not synced that month)
+                    </span>
+                  </div>
+                </>
+              )}
+
+              {hasSeasonData && (
+                <>
+                  <p className="mt-5 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                    Bali tourist season
+                  </p>
+                  <svg
+                    viewBox={`0 0 ${CHART_W} ${PANEL_H}`}
+                    className="mt-1 h-auto w-full"
+                    role="img"
+                    aria-label="Bali's historical tourist-season pattern by calendar month"
+                  >
+                    {renderGrid(max3, step3, yFor3, (v) => `${v.toFixed(1)}%`)}
+                    {forecastDivider}
+                    <path d={seasonAreaPath} fill={paletteVar("season")} opacity={0.12} />
+                    <path
+                      d={linePath(seasonPts)}
+                      fill="none"
+                      stroke={paletteVar("season")}
+                      strokeWidth={1.5}
+                      strokeDasharray="2 2"
+                    />
+                    {renderXAxis()}
+                  </svg>
+                  <div className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: paletteVar("season") }} />
+                      Bali tourist season (% share of a typical year&apos;s arrivals, by month)
+                    </span>
+                  </div>
+                </>
+              )}
 
               {recentOfflineComparison && (
                 <p className="mt-3 text-xs text-zinc-500">
