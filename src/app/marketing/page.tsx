@@ -274,6 +274,36 @@ export default async function MarketingOverviewPage({
     a.date.localeCompare(b.date),
   );
 
+  // Real in-store (offline) revenue, from the actual Odoo POS sync
+  // (order_lines/orders - same tables /operations reads), not the
+  // financials sheet's "Instore Sales" column, which is an order COUNT,
+  // not revenue - multiplying a count by some assumed average price
+  // would be fabricating a number no one measured. Bucketed into the
+  // same WITA-calendar months /operations itself uses. A month with no
+  // bucket here genuinely has no synced Odoo data for that period (sync
+  // started partway through this app's history) - not a zero month.
+  const offlineRevenueByMonth = new Map<string, number>();
+  if (months.length) {
+    const { data: dailySales, error: dailySalesError } = await supabase.rpc("ops_sales_daily", {
+      p_from: `${months[0].date}T00:00:00+08:00`,
+      p_to: new Date().toISOString(),
+    });
+    if (!dailySalesError) {
+      for (const row of (dailySales ?? []) as { day: string; revenue: number }[]) {
+        const monthKey = `${row.day.slice(0, 7)}-01`;
+        offlineRevenueByMonth.set(
+          monthKey,
+          (offlineRevenueByMonth.get(monthKey) ?? 0) + Number(row.revenue),
+        );
+      }
+    }
+    for (const m of months) {
+      const offline = offlineRevenueByMonth.get(m.date);
+      if (offline !== undefined) m.metrics.offline_sales_idr_real = offline;
+    }
+  }
+  const hasOfflineRevenueData = offlineRevenueByMonth.size > 0;
+
   const selected =
     months.find((m) => m.date === monthParam) ?? months[months.length - 1];
   const selectedIndex = months.findIndex((m) => m.date === selected?.date);
@@ -697,6 +727,11 @@ export default async function MarketingOverviewPage({
           // why), reused as-is rather than inventing a second method here.
           const salesForecast = forecast(salesSeries, { horizon: 3 });
 
+          // Only the months with a real synced value - not forced to 0,
+          // which would misread as "no in-store sales that month" when
+          // it really means "before the Odoo sync covered this period".
+          const offlineMonths = months.filter((m) => m.metrics.offline_sales_idr_real !== undefined);
+
           const seasonIndex = buildSeasonIndex(arrivalRows);
           const hasSeasonData = arrivalRows.length > 0;
           const seasonByMonth = new Map(seasonIndex.map((p) => [p.month, p]));
@@ -724,6 +759,7 @@ export default async function MarketingOverviewPage({
             1,
             ...spendSeries.map((p) => p.value),
             ...salesSeries.map((p) => p.value),
+            ...offlineMonths.map((m) => m.metrics.offline_sales_idr_real!),
             ...salesForecast.forecast.map((f) => f.high),
           );
           const rupiahStep = niceStep(maxRupiah / 4);
@@ -742,6 +778,23 @@ export default async function MarketingOverviewPage({
             x: xFor(i),
             y: yForRupiah(m.metrics.online_sales_idr ?? 0),
           }));
+          // Broken into segments rather than one continuous line, so a
+          // gap in real Odoo sync coverage shows as a gap, not an
+          // interpolated guess across months with no data.
+          const offlineSegments: Point[][] = [];
+          {
+            let current: Point[] = [];
+            months.forEach((m, i) => {
+              const v = m.metrics.offline_sales_idr_real;
+              if (v === undefined) {
+                if (current.length) offlineSegments.push(current);
+                current = [];
+              } else {
+                current.push({ x: xFor(i), y: yForRupiah(v) });
+              }
+            });
+            if (current.length) offlineSegments.push(current);
+          }
           const lastRealSales = salesSeries[salesSeries.length - 1]?.value ?? 0;
           const forecastLine: Point[] = [
             { x: xFor(forecastStartIdx - 1), y: yForRupiah(lastRealSales) },
@@ -765,6 +818,36 @@ export default async function MarketingOverviewPage({
             })),
           ];
 
+          // Most recent pair of CONSECUTIVE real months with both spend
+          // and in-store revenue on file - a plain MoM comparison, not a
+          // claimed cause/effect (one month's co-movement doesn't prove
+          // marketing drove the in-store change either way).
+          let recentOfflineComparison: {
+            fromLabel: string;
+            toLabel: string;
+            spendPct: number | null;
+            offlinePct: number | null;
+          } | null = null;
+          for (let i = months.length - 1; i > 0; i--) {
+            const curr = months[i];
+            const prev = months[i - 1];
+            const currOffline = curr.metrics.offline_sales_idr_real;
+            const prevOffline = prev.metrics.offline_sales_idr_real;
+            if (currOffline === undefined || prevOffline === undefined) continue;
+            const currSpend = curr.metrics.total_spend_idr;
+            const prevSpend = prev.metrics.total_spend_idr;
+            recentOfflineComparison = {
+              fromLabel: MONTH_LABEL.format(new Date(`${prev.date}T00:00:00Z`)),
+              toLabel: MONTH_LABEL.format(new Date(`${curr.date}T00:00:00Z`)),
+              spendPct:
+                currSpend !== undefined && prevSpend
+                  ? Math.round(((currSpend - prevSpend) / prevSpend) * 100)
+                  : null,
+              offlinePct: prevOffline ? Math.round(((currOffline - prevOffline) / prevOffline) * 100) : null,
+            };
+            break;
+          }
+
           const seasonPts: Point[] = xPoints.map((p, i) => {
             const m = Number(p.date.slice(5, 7));
             return { x: xFor(i), y: yForPct(seasonByMonth.get(m)?.indexPct ?? 0) };
@@ -782,27 +865,41 @@ export default async function MarketingOverviewPage({
             .sort((a, b) => a.month - b.month);
 
           const SEASON_SCOPE = "mk-season-chart";
-          const seasonChartCss = paletteCss(SEASON_SCOPE, ["spend", "sales", "season"]);
+          const seasonChartCss = paletteCss(SEASON_SCOPE, ["spend", "sales", "offline", "season"]);
 
           return (
             <div className={`mt-8 ${SEASON_SCOPE}`}>
               <style dangerouslySetInnerHTML={{ __html: seasonChartCss }} />
-              <h2 className="text-lg font-medium">Spend, sales &amp; Bali&apos;s tourist season</h2>
+              <h2 className="text-lg font-medium">
+                Spend, online &amp; in-store sales, and Bali&apos;s tourist season
+              </h2>
               <p className="mt-1 text-xs text-zinc-500">
-                Real marketing spend and online sales by month (left axis), against Bali&apos;s
-                historical tourist-season pattern (right axis - share of a typical year&apos;s
-                foreign arrivals via Ngurah Rai, averaged across {yearsAveraged} real year
-                {yearsAveraged === 1 ? "" : "s"}
+                Real marketing spend, online sales, and in-store (offline) revenue by month (left
+                axis), against Bali&apos;s historical tourist-season pattern (right axis - share
+                of a typical year&apos;s foreign arrivals via Ngurah Rai, averaged across{" "}
+                {yearsAveraged} real year{yearsAveraged === 1 ? "" : "s"}
                 {hasSeasonData ? "" : " - not seeded yet"}). The dashed line is a{" "}
                 {salesForecast.forecast.length}-month online-sales projection (same trend-based
                 method <Link href="/forecast" className="underline">/forecast</Link> uses) - a
-                projection, not a target.
+                projection, not a target. In-store revenue is the real Odoo POS sync (same source
+                as /operations), not the order-count column on Financials - it only covers months
+                the sync has actually run for, so a gap in that line means no synced data yet, not
+                zero sales.
               </p>
 
               {!hasSeasonData && (
                 <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
                   Run <code>supabase/migrations/0038_bali_tourist_arrivals.sql</code> to show the
                   tourist-season line and the busy/quiet-month read below.
+                </p>
+              )}
+              {!hasOfflineRevenueData && (
+                <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
+                  No in-store revenue line yet - either the Odoo sync hasn&apos;t run for any month
+                  in this range, or <code>supabase/migrations/0022_variants_and_sales_rollups.sql</code>{" "}
+                  hasn&apos;t been run. Check{" "}
+                  <Link href="/operations" className="underline">/operations</Link>&apos;s last
+                  sync status.
                 </p>
               )}
 
@@ -870,6 +967,15 @@ export default async function MarketingOverviewPage({
                 )}
                 <path d={linePath(spendPts)} fill="none" stroke={paletteVar("spend")} strokeWidth={2} />
                 <path d={linePath(salesPts)} fill="none" stroke={paletteVar("sales")} strokeWidth={2} />
+                {offlineSegments.map((seg, i) => (
+                  <path
+                    key={`offline-${i}`}
+                    d={linePath(seg)}
+                    fill="none"
+                    stroke={paletteVar("offline")}
+                    strokeWidth={2}
+                  />
+                ))}
                 <path d={bandPath(forecastBandTop, forecastBandBottom)} fill={paletteVar("sales")} opacity={0.15} />
                 <path
                   d={linePath(forecastLine)}
@@ -905,6 +1011,12 @@ export default async function MarketingOverviewPage({
                   <span className="h-2.5 w-2.5 rounded-full" style={{ background: paletteVar("sales") }} />
                   Online sales (dashed = projected)
                 </span>
+                {hasOfflineRevenueData && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: paletteVar("offline") }} />
+                    In-store sales (real Odoo sync, gaps = not synced that month)
+                  </span>
+                )}
                 {hasSeasonData && (
                   <span className="flex items-center gap-1.5">
                     <span className="h-2.5 w-2.5 rounded-full" style={{ background: paletteVar("season") }} />
@@ -912,6 +1024,21 @@ export default async function MarketingOverviewPage({
                   </span>
                 )}
               </div>
+
+              {recentOfflineComparison && (
+                <p className="mt-3 text-xs text-zinc-500">
+                  {recentOfflineComparison.fromLabel} → {recentOfflineComparison.toLabel}: spend{" "}
+                  {recentOfflineComparison.spendPct === null
+                    ? "n/a"
+                    : `${recentOfflineComparison.spendPct > 0 ? "+" : ""}${recentOfflineComparison.spendPct}%`}
+                  , in-store sales{" "}
+                  {recentOfflineComparison.offlinePct === null
+                    ? "n/a"
+                    : `${recentOfflineComparison.offlinePct > 0 ? "+" : ""}${recentOfflineComparison.offlinePct}%`}
+                  . One month moving together (or not) isn&apos;t proof either way - read this
+                  alongside the lines above over a longer stretch before drawing a conclusion.
+                </p>
+              )}
 
               {hasSeasonData && (
                 <div className="mt-4 rounded-lg border border-zinc-200 p-3 text-xs dark:border-zinc-800">
