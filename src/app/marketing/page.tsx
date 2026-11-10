@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getInsights } from "@/lib/insights";
+import { forecast, type Period } from "@/lib/forecast/engine";
+import { linePath, bandPath, niceStep, type Point } from "@/lib/viz/chart-utils";
+import { paletteCss, paletteVar } from "@/lib/viz/palette";
+import { buildSeasonIndex, fetchArrivals, EVEN_SHARE_PCT } from "@/lib/tourism/seasonality";
+import { formatRupiahCompact } from "@/lib/creative-brief/format";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +20,17 @@ const MONTH_LABEL = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
   timeZone: "UTC",
 });
+const MONTH_ONLY_LABEL = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  timeZone: "UTC",
+});
+const MONTH_NAME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  timeZone: "UTC",
+});
+function monthName(month1to12: number): string {
+  return MONTH_NAME_FORMATTER.format(new Date(Date.UTC(2000, month1to12 - 1, 1)));
+}
 
 const modules = [
   { href: "/marketing/creative-brief", label: "Creative Brief", status: "live" as const },
@@ -233,7 +249,7 @@ export default async function MarketingOverviewPage({
   const isSimple = view === "simple";
   const supabase = createAdminClient();
 
-  const [{ data: factRows }, { data: ecomRows }, { active: attentionItems, good: goodItems }] =
+  const [{ data: factRows }, { data: ecomRows }, { active: attentionItems, good: goodItems }, arrivalRows] =
     await Promise.all([
       supabase
         .from("facts_daily")
@@ -246,6 +262,7 @@ export default async function MarketingOverviewPage({
         .eq("source", "ecom_breakdown_sheet")
         .order("date", { ascending: true }),
       getInsights(),
+      fetchArrivals(supabase),
     ]);
 
   const byMonth = new Map<string, MonthMetrics>();
@@ -662,58 +679,266 @@ export default async function MarketingOverviewPage({
         </div>
       )}
 
-      {months.length > 1 && (
-        <div className="mt-8">
-          <h2 className="text-lg font-medium">Spend vs. online sales, by month</h2>
-          <div className="mt-3 space-y-2">
-            {(() => {
-              const maxValue = Math.max(
-                ...months.map((m) =>
-                  Math.max(m.metrics.total_spend_idr ?? 0, m.metrics.online_sales_idr ?? 0),
-                ),
-              );
-              return months
-                .slice()
-                .reverse()
-                .map((m) => (
-                  <div key={m.date} className="text-xs">
-                    <div className="flex justify-between text-zinc-500">
-                      <span>{MONTH_LABEL.format(new Date(m.date + "T00:00:00Z"))}</span>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-2">
-                      <div className="h-3 w-16 shrink-0 text-right text-zinc-500">
-                        spend
-                      </div>
-                      <div className="h-3 flex-1 bg-zinc-100 dark:bg-zinc-900">
-                        <div
-                          className="h-3 bg-zinc-700 dark:bg-zinc-400"
-                          style={{
-                            width: `${((m.metrics.total_spend_idr ?? 0) / maxValue) * 100}%`,
-                          }}
-                        />
-                      </div>
-                      <div className="w-28 shrink-0">{fmtIdr(m.metrics.total_spend_idr)}</div>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-2">
-                      <div className="h-3 w-16 shrink-0 text-right text-zinc-500">
-                        online
-                      </div>
-                      <div className="h-3 flex-1 bg-zinc-100 dark:bg-zinc-900">
-                        <div
-                          className="h-3 bg-emerald-500"
-                          style={{
-                            width: `${((m.metrics.online_sales_idr ?? 0) / maxValue) * 100}%`,
-                          }}
-                        />
-                      </div>
-                      <div className="w-28 shrink-0">{fmtIdr(m.metrics.online_sales_idr)}</div>
-                    </div>
-                  </div>
-                ));
-            })()}
-          </div>
-        </div>
-      )}
+      {months.length > 1 &&
+        (() => {
+          const spendSeries: Period[] = months.map((m) => ({
+            date: m.date,
+            value: m.metrics.total_spend_idr ?? 0,
+          }));
+          const salesSeries: Period[] = months.map((m) => ({
+            date: m.date,
+            value: m.metrics.online_sales_idr ?? 0,
+          }));
+          // Online sales is the thing marketing spend is trying to move, so
+          // it's the one series worth projecting forward - spend itself is
+          // a decision this chart is meant to inform, not an outcome to
+          // predict. Same engine /forecast uses elsewhere in this app
+          // (Holt, no seasonal component - see that module's own notes on
+          // why), reused as-is rather than inventing a second method here.
+          const salesForecast = forecast(salesSeries, { horizon: 3 });
+
+          const seasonIndex = buildSeasonIndex(arrivalRows);
+          const hasSeasonData = arrivalRows.length > 0;
+          const seasonByMonth = new Map(seasonIndex.map((p) => [p.month, p]));
+          const yearsAveraged = seasonIndex[0]?.yearsAveraged ?? 0;
+
+          type XPt = { date: string; isForecast: boolean };
+          const xPoints: XPt[] = [
+            ...months.map((m) => ({ date: m.date, isForecast: false })),
+            ...salesForecast.forecast.map((f) => ({ date: f.date, isForecast: true })),
+          ];
+          const forecastStartIdx = months.length;
+
+          const CHART_W = 820;
+          const CHART_H = 320;
+          const PAD_L = 64;
+          const PAD_R = 50;
+          const PAD_T = 28;
+          const PAD_B = 32;
+          const plotW = CHART_W - PAD_L - PAD_R;
+          const plotH = CHART_H - PAD_T - PAD_B;
+          const xFor = (i: number) =>
+            PAD_L + (xPoints.length <= 1 ? 0 : (i / (xPoints.length - 1)) * plotW);
+
+          const maxRupiah = Math.max(
+            1,
+            ...spendSeries.map((p) => p.value),
+            ...salesSeries.map((p) => p.value),
+            ...salesForecast.forecast.map((f) => f.high),
+          );
+          const rupiahStep = niceStep(maxRupiah / 4);
+          const rupiahMax = rupiahStep * 4;
+          const yForRupiah = (v: number) =>
+            PAD_T + plotH - (Math.min(v, rupiahMax) / rupiahMax) * plotH;
+
+          const maxPct = Math.max(1, ...seasonIndex.map((p) => p.indexPct)) * 1.15;
+          const yForPct = (v: number) => PAD_T + plotH - (Math.min(v, maxPct) / maxPct) * plotH;
+
+          const spendPts: Point[] = months.map((m, i) => ({
+            x: xFor(i),
+            y: yForRupiah(m.metrics.total_spend_idr ?? 0),
+          }));
+          const salesPts: Point[] = months.map((m, i) => ({
+            x: xFor(i),
+            y: yForRupiah(m.metrics.online_sales_idr ?? 0),
+          }));
+          const lastRealSales = salesSeries[salesSeries.length - 1]?.value ?? 0;
+          const forecastLine: Point[] = [
+            { x: xFor(forecastStartIdx - 1), y: yForRupiah(lastRealSales) },
+            ...salesForecast.forecast.map((f, i) => ({
+              x: xFor(forecastStartIdx + i),
+              y: yForRupiah(f.expected),
+            })),
+          ];
+          const forecastBandTop: Point[] = [
+            { x: xFor(forecastStartIdx - 1), y: yForRupiah(lastRealSales) },
+            ...salesForecast.forecast.map((f, i) => ({
+              x: xFor(forecastStartIdx + i),
+              y: yForRupiah(f.high),
+            })),
+          ];
+          const forecastBandBottom: Point[] = [
+            { x: xFor(forecastStartIdx - 1), y: yForRupiah(lastRealSales) },
+            ...salesForecast.forecast.map((f, i) => ({
+              x: xFor(forecastStartIdx + i),
+              y: yForRupiah(f.low),
+            })),
+          ];
+
+          const seasonPts: Point[] = xPoints.map((p, i) => {
+            const m = Number(p.date.slice(5, 7));
+            return { x: xFor(i), y: yForPct(seasonByMonth.get(m)?.indexPct ?? 0) };
+          });
+          const seasonAreaPath = hasSeasonData
+            ? `${linePath(seasonPts)} L${xFor(xPoints.length - 1)},${yForPct(0)} L${xFor(0)},${yForPct(0)} Z`
+            : "";
+
+          const sortedBySeasonality = [...seasonIndex].sort((a, b) => b.indexPct - a.indexPct);
+          const highMonths = sortedBySeasonality
+            .filter((p) => p.indexPct > EVEN_SHARE_PCT + 0.5)
+            .sort((a, b) => a.month - b.month);
+          const lowMonths = sortedBySeasonality
+            .filter((p) => p.indexPct < EVEN_SHARE_PCT - 0.5)
+            .sort((a, b) => a.month - b.month);
+
+          const SEASON_SCOPE = "mk-season-chart";
+          const seasonChartCss = paletteCss(SEASON_SCOPE, ["spend", "sales", "season"]);
+
+          return (
+            <div className={`mt-8 ${SEASON_SCOPE}`}>
+              <style dangerouslySetInnerHTML={{ __html: seasonChartCss }} />
+              <h2 className="text-lg font-medium">Spend, sales &amp; Bali&apos;s tourist season</h2>
+              <p className="mt-1 text-xs text-zinc-500">
+                Real marketing spend and online sales by month (left axis), against Bali&apos;s
+                historical tourist-season pattern (right axis - share of a typical year&apos;s
+                foreign arrivals via Ngurah Rai, averaged across {yearsAveraged} real year
+                {yearsAveraged === 1 ? "" : "s"}
+                {hasSeasonData ? "" : " - not seeded yet"}). The dashed line is a{" "}
+                {salesForecast.forecast.length}-month online-sales projection (same trend-based
+                method <Link href="/forecast" className="underline">/forecast</Link> uses) - a
+                projection, not a target.
+              </p>
+
+              {!hasSeasonData && (
+                <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
+                  Run <code>supabase/migrations/0038_bali_tourist_arrivals.sql</code> to show the
+                  tourist-season line and the busy/quiet-month read below.
+                </p>
+              )}
+
+              <svg
+                viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+                className="mt-3 h-auto w-full"
+                role="img"
+                aria-label="Marketing spend, online sales, projected sales, and Bali tourist season by month"
+              >
+                {[0, 1, 2, 3, 4].map((i) => {
+                  const v = rupiahStep * i;
+                  return (
+                    <g key={`l-${i}`}>
+                      <line
+                        x1={PAD_L}
+                        x2={CHART_W - PAD_R}
+                        y1={yForRupiah(v)}
+                        y2={yForRupiah(v)}
+                        stroke="currentColor"
+                        className="text-zinc-100 dark:text-zinc-900"
+                        strokeWidth={1}
+                      />
+                      <text x={PAD_L - 6} y={yForRupiah(v) + 3} textAnchor="end" className="fill-zinc-400 text-[9px]">
+                        {formatRupiahCompact(v)}
+                      </text>
+                    </g>
+                  );
+                })}
+                {hasSeasonData &&
+                  [0, 1, 2, 3, 4].map((i) => {
+                    const v = (maxPct / 4) * i;
+                    return (
+                      <text
+                        key={`r-${i}`}
+                        x={CHART_W - PAD_R + 6}
+                        y={yForPct(v) + 3}
+                        textAnchor="start"
+                        className="fill-zinc-400 text-[9px]"
+                      >
+                        {v.toFixed(1)}%
+                      </text>
+                    );
+                  })}
+                <line
+                  x1={xFor(forecastStartIdx - 1)}
+                  x2={xFor(forecastStartIdx - 1)}
+                  y1={PAD_T}
+                  y2={PAD_T + plotH}
+                  stroke="currentColor"
+                  className="text-zinc-300 dark:text-zinc-700"
+                  strokeWidth={1}
+                  strokeDasharray="2 2"
+                />
+                {hasSeasonData && (
+                  <>
+                    <path d={seasonAreaPath} fill={paletteVar("season")} opacity={0.12} />
+                    <path
+                      d={linePath(seasonPts)}
+                      fill="none"
+                      stroke={paletteVar("season")}
+                      strokeWidth={1.5}
+                      strokeDasharray="2 2"
+                    />
+                  </>
+                )}
+                <path d={linePath(spendPts)} fill="none" stroke={paletteVar("spend")} strokeWidth={2} />
+                <path d={linePath(salesPts)} fill="none" stroke={paletteVar("sales")} strokeWidth={2} />
+                <path d={bandPath(forecastBandTop, forecastBandBottom)} fill={paletteVar("sales")} opacity={0.15} />
+                <path
+                  d={linePath(forecastLine)}
+                  fill="none"
+                  stroke={paletteVar("sales")}
+                  strokeWidth={2}
+                  strokeDasharray="5 4"
+                />
+                {xPoints.map((p, i) => {
+                  const d = new Date(`${p.date}T00:00:00Z`);
+                  const show = d.getUTCMonth() === 0 || i === 0 || i === xPoints.length - 1 || i % 3 === 0;
+                  if (!show) return null;
+                  return (
+                    <text
+                      key={p.date}
+                      x={xFor(i)}
+                      y={CHART_H - PAD_B + 14}
+                      textAnchor="middle"
+                      className={`text-[9px] ${p.isForecast ? "fill-zinc-300 italic dark:fill-zinc-700" : "fill-zinc-400"}`}
+                    >
+                      {d.getUTCMonth() === 0 ? MONTH_LABEL.format(d) : MONTH_ONLY_LABEL.format(d)}
+                    </text>
+                  );
+                })}
+              </svg>
+
+              <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: paletteVar("spend") }} />
+                  Total spend
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: paletteVar("sales") }} />
+                  Online sales (dashed = projected)
+                </span>
+                {hasSeasonData && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: paletteVar("season") }} />
+                    Bali tourist season (right axis)
+                  </span>
+                )}
+              </div>
+
+              {hasSeasonData && (
+                <div className="mt-4 rounded-lg border border-zinc-200 p-3 text-xs dark:border-zinc-800">
+                  <p>
+                    <strong>Historically busier:</strong>{" "}
+                    {highMonths.length ? highMonths.map((p) => monthName(p.month)).join(", ") : "no month stands out"}
+                    {" "}- Bali&apos;s dry-season/holiday stretch, above an even{" "}
+                    {EVEN_SHARE_PCT.toFixed(1)}%/month share of a typical year&apos;s arrivals.
+                  </p>
+                  <p className="mt-1">
+                    <strong>Historically quieter:</strong>{" "}
+                    {lowMonths.length ? lowMonths.map((p) => monthName(p.month)).join(", ") : "no month stands out"}
+                    {" "}- worth timing activations, content pushes, or slower-season offers here
+                    rather than competing for attention in the busy months, and using the lead time
+                    to prep stock and creative ahead of the next busy stretch.
+                  </p>
+                  <p className="mt-1 text-zinc-500">
+                    This is Bali-wide tourist arrival seasonality (Disparda&apos;s own monthly
+                    release), not ASASI&apos;s own sales pattern - it&apos;s a real external signal
+                    to plan around, not a guarantee your sales move the same way. Compare it against
+                    the actual spend/sales lines above for your own pattern before acting on it.
+                  </p>
+                </div>
+              )}
+            </div>
+          );
+        })()}
     </div>
   );
 }
