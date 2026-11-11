@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { AsasiLogo } from "@/components/brand/asasi-logo";
 import { getStaffUser } from "@/lib/membership/data";
 import { qrSvg } from "@/lib/membership/qr";
@@ -18,7 +17,6 @@ export default async function TentCardPage() {
   return (
     <div className="mx-auto max-w-3xl px-6 py-8 print:max-w-none print:p-0">
       <div className="print:hidden">
-        <Link href="/membership" className="text-sm text-zinc-500 underline">← Membership</Link>
         <h1 className="mt-2 text-xl font-semibold">Tent card</h1>
         <p className="mt-1 text-sm text-zinc-500">
           Prints on A5 landscape. Fold in half for a tent: the top half prints

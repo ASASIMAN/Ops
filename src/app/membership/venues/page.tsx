@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { getStaffUser } from "@/lib/membership/data";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createVenueAction, deleteVenueAction, updateVenueAction } from "../actions";
@@ -14,7 +13,6 @@ export default async function VenuesPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
-      <Link href="/membership" className="text-sm text-zinc-500 underline">← Membership</Link>
       <h1 className="mt-2 text-xl font-semibold">Partner venues</h1>
       <p className="mt-1 text-sm text-zinc-500">
         Shown to members on their card and to venue staff when they scan a member.

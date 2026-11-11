@@ -31,17 +31,10 @@ export default async function MembershipPage({
   ]);
   const outstanding = (pts ?? []).reduce((s, m) => s + m.points_balance, 0);
 
-  const nav = "rounded border border-zinc-300 px-3 py-1.5 text-sm hover:border-zinc-500 dark:border-zinc-700";
-
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Membership</h1>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/membership/scan" className={nav}>Scan a member</Link>
-          <Link href="/membership/venues" className={nav}>Partner venues</Link>
-          <Link href="/membership/tent-card" className={nav}>Print tent card</Link>
-        </div>
       </div>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-3">

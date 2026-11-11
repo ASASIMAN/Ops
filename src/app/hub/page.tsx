@@ -63,6 +63,19 @@ async function getMarketingStats() {
   ];
 }
 
+async function getMembershipStats() {
+  const supabase = createAdminClient();
+  const [{ count }, { data: pts }] = await Promise.all([
+    supabase.from("members").select("*", { count: "exact", head: true }),
+    supabase.from("members").select("points_balance"),
+  ]);
+  const outstanding = (pts ?? []).reduce((s, m) => s + m.points_balance, 0);
+  return [
+    `${(count ?? 0).toLocaleString()} members`,
+    `${outstanding.toLocaleString()} points outstanding`,
+  ];
+}
+
 export default async function HubPage() {
   const supabase = await createClient();
   const {
@@ -85,6 +98,10 @@ export default async function HubPage() {
   }
   if (visibleModules.some((m) => m.id === "marketing")) {
     stats.marketing = await getMarketingStats();
+  }
+
+  if (visibleModules.some((m) => m.id === "membership")) {
+    stats.membership = await getMembershipStats();
   }
 
   return (
