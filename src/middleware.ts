@@ -2,6 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/setup"];
+// Member-facing pages (QR sign-up, member card, scan/verify). Matched by whole
+// path segment so e.g. "/v" never swallows "/venues" and "/member" never
+// swallows "/membership" (the staff-only module).
+const PUBLIC_SEGMENTS = ["join", "member", "v"];
 const CHANGE_PASSWORD_PATH = "/change-password";
 
 export async function middleware(request: NextRequest) {
@@ -34,9 +38,9 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isPublic = PUBLIC_PATHS.some((path) =>
-    request.nextUrl.pathname.startsWith(path),
-  );
+  const isPublic =
+    PUBLIC_PATHS.some((path) => request.nextUrl.pathname.startsWith(path)) ||
+    PUBLIC_SEGMENTS.includes(request.nextUrl.pathname.split("/")[1]);
 
   if (!user && !isPublic) {
     const loginUrl = new URL("/login", request.url);
