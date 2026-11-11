@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { InstallHint } from "./install-hint";
 import { AsasiLogo } from "@/components/brand/asasi-logo";
 import { getActiveVenues, getMemberByToken } from "@/lib/membership/data";
 import { qrSvg } from "@/lib/membership/qr";
@@ -8,7 +10,20 @@ import { googleWalletConfigured } from "@/lib/membership/wallet-google";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "My ASASI Membership", robots: { index: false } };
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}): Promise<Metadata> {
+  const { token } = await params;
+  return {
+    title: "My ASASI Membership",
+    robots: { index: false },
+    manifest: `/member/${token}/manifest.webmanifest`,
+    icons: { apple: "/brand/apple-touch-icon.png" },
+    appleWebApp: { capable: true, title: "ASASI", statusBarStyle: "black" },
+  };
+}
 
 export default async function MemberCardPage({
   params,
@@ -80,9 +95,7 @@ export default async function MemberCardPage({
           )}
         </div>
       )}
-      <p className="mt-3 text-center text-xs text-zinc-500">
-        Tip: bookmark this page or add it to your home screen - it&apos;s your card.
-      </p>
+      <InstallHint />
 
       <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
         Partner perks
