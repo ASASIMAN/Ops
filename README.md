@@ -723,3 +723,20 @@ defaulted; each is called out where it's used in code and in the UI:
 5. **Assumptions and taxonomy** (LTV multiplier, budget figures, status
    lists): edit directly on **Financials** (assumptions) or
    **Marketing → Settings** (stores, taxonomy) - no code or SQL needed.
+
+### Membership (QR tent card → wallet card)
+
+Staff module at `/membership` (admin / ops / marketing). Public, member-facing
+routes (no login): `/join`, `/member/<token>`, `/v/<code>`.
+
+1. Apply `supabase/migrations/0039_membership.sql`.
+2. Set `MEMBERSHIP_BASE_URL` to the live domain, then print `/membership/tent-card`
+   (the QR points at `/join`).
+3. Optional wallet buttons appear once their env vars are set (see `.env.example`):
+   Google Wallet (issuer ID + service account) and Apple Wallet (Apple Developer
+   Pass Type ID + signing cert). Without them, members still get a web card
+   with the QR that works the same way.
+4. The pass QR encodes `/v/<code>`. Partner venues scanning it with any phone
+   camera see "Valid member" + the offer; signed-in staff see the same page with
+   add-points / redeem controls. Points: 1 per IDR 10,000 (edit
+   `membership_idr_per_point` in `assumptions`).

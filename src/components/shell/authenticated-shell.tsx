@@ -30,7 +30,7 @@ export async function AuthenticatedShell({
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="border-b border-zinc-200 dark:border-zinc-800">
+      <header className="print:hidden border-b border-zinc-200 dark:border-zinc-800">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           <Link
             href="/hub"

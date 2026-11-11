@@ -4,7 +4,11 @@
     "title": "Operations",
     "description": "Live sales data synced from Odoo POS across all stores.",
     "route": "/operations",
-    "roles": ["admin", "ops", "viewer"],
+    "roles": [
+      "admin",
+      "ops",
+      "viewer"
+    ],
     "status": "live"
   },
   {
@@ -12,7 +16,11 @@
     "title": "Forecasting",
     "description": "PO planning chart & planner, restock alerts, revenue/demand forecasts, top & low sellers, and forecast accuracy - built on the Odoo sales sync.",
     "route": "/forecast",
-    "roles": ["admin", "ops", "viewer"],
+    "roles": [
+      "admin",
+      "ops",
+      "viewer"
+    ],
     "status": "live"
   },
   {
@@ -20,7 +28,23 @@
     "title": "Marketing",
     "description": "Overview, Paid Media, and Financials are live; Campaign Tracker, Creative Planner, KOL CRM, and more are being built out module by module.",
     "route": "/marketing",
-    "roles": ["admin", "marketing", "viewer"],
+    "roles": [
+      "admin",
+      "marketing",
+      "viewer"
+    ],
+    "status": "live"
+  },
+  {
+    "id": "membership",
+    "title": "Membership",
+    "description": "Member sign-ups from the in-store QR, wallet cards, partner venues and points.",
+    "route": "/membership",
+    "roles": [
+      "admin",
+      "ops",
+      "marketing"
+    ],
     "status": "live"
   }
 ]
