@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { forecast, type Period, type ForecastResult } from "@/lib/forecast/engine";
-import { hasForecastSchema, fetchStockLevels } from "@/lib/forecast/data";
+import { hasForecastSchema, fetchStockLevels, fetchPeriodDemand } from "@/lib/forecast/data";
 import { hasLeadTimeSchema, fetchLeadTimeSettings, fetchEstimatesByProduct, fetchMeasuredDeliveriesByProduct } from "@/lib/leadtime/data";
 import { resolveProductLeadTime, type LeadTimeRange, type LeadTimeSettings } from "@/lib/leadtime/resolve";
 import { fetchAttributeAliases, canonicalColor, canonicalSize, type AttributeAliasMap } from "@/lib/forecast/aliases";
@@ -195,8 +195,8 @@ export default async function ForecastChartPage({
     );
   }
 
-  const primaryStyle = resolveStyleByName(params.product, styleOptions) ?? styleOptions[0];
-  const productNotFound = !!params.product && !resolveStyleByName(params.product, styleOptions);
+  const requestedStyle = resolveStyleByName(params.product, styleOptions);
+  const productNotFound = !!params.product && !requestedStyle;
   const compareStyle = params.compareProduct ? resolveStyleByName(params.compareProduct, styleOptions) : null;
   const compareNotFound = !!params.compareProduct && !compareStyle;
 
@@ -215,6 +215,33 @@ export default async function ForecastChartPage({
   const todayIso = today.toISOString().slice(0, 10);
   const currentMonthIso = monthStart(today, 0);
   const historyFrom = pastMonths === 0 ? "2000-01-01" : monthStart(today, -pastMonths);
+
+  // Monthly net units across ALL products (the Odoo sales sync), loaded only
+  // when needed: to pick a default product, and to fill the chart when the
+  // selected product has no sales. "All history" is capped at 24 months here
+  // to keep the query bounded.
+  const allProductsFrom = pastMonths === 0 ? monthStart(today, -24) : historyFrom;
+  let allProductsRowsPromise: ReturnType<typeof fetchPeriodDemand> | null = null;
+  const loadAllProductsRows = () =>
+    (allProductsRowsPromise ??= fetchPeriodDemand(supabase, { from: allProductsFrom, to: currentMonthIso, bucket: "month", storeIds: storeIdsForSales }));
+
+  // No product chosen: open on the best seller in this window rather than the first name alphabetically (which may never have sold).
+  let primaryStyle = requestedStyle ?? styleOptions[0];
+  let defaultedToBestSeller = false;
+  if (!requestedStyle) {
+    const { rows } = await loadAllProductsRows();
+    const unitsByProduct = new Map<number, number>();
+    for (const r of rows) unitsByProduct.set(r.product_id, (unitsByProduct.get(r.product_id) ?? 0) + r.units);
+    let bestUnits = 0;
+    for (const option of styleOptions) {
+      const units = option.productIds.reduce((sum, id) => sum + (unitsByProduct.get(id) ?? 0), 0);
+      if (units > bestUnits) {
+        bestUnits = units;
+        primaryStyle = option;
+        defaultedToBestSeller = true;
+      }
+    }
+  }
 
   const primaryVariants = await fetchStyleVariants(supabase, primaryStyle.templateId, merges);
   const colorOptions = Array.from(new Set(primaryVariants.map((v) => canonicalColor(v.color, aliases)).filter((c): c is string => !!c))).sort();
@@ -353,6 +380,18 @@ export default async function ForecastChartPage({
     ? primarySeries.monthlySeries.reduce((s, p) => s + p.value, 0) / primarySeries.monthlySeries.length
     : 0;
   const isLowVolume = avgMonthly > 0 && avgMonthly < lowVolumeThreshold;
+
+  // Selected product has no sales in this window: chart total monthly sales across all products in its place.
+  let allProducts: { history: Period[]; forecast: { date: string; expected: number; low: number; high: number }[] } | null = null;
+  if (isEmpty) {
+    const { rows } = await loadAllProductsRows();
+    const byMonth = new Map<string, number>();
+    for (const r of rows) byMonth.set(r.bucket_date, (byMonth.get(r.bucket_date) ?? 0) + r.units);
+    const history = Array.from(byMonth.entries())
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([date, value]) => ({ date, value }));
+    if (history.length) allProducts = { history, forecast: forecast(history, { horizon: nextMonths }).forecast };
+  }
 
   // --- Shared x-axis ---
   const trimmedHistory = trimToPast(primarySeries.displayMonths, pastMonths);
@@ -713,6 +752,9 @@ export default async function ForecastChartPage({
             Another product in Odoo shares this exact name under a different template id - the id is appended here so both are reachable and this one isn&apos;t silently merged with the other. Worth checking in Odoo whether one is a duplicate.
           </AssumptionNote>
         )}
+        {defaultedToBestSeller && (
+          <p className="fc-card-sub">No product chosen - showing {primaryStyle.name}, the best seller in this window. Pick another in Product above.</p>
+        )}
         {isLowVolume && (
           <AssumptionNote>
             Low volume - averaging {avgMonthly.toFixed(1)} units/month over this window, so the forecast is rough.
@@ -745,10 +787,76 @@ export default async function ForecastChartPage({
             </div>
 
             {isEmpty ? (
-              <p className="py-16 text-center text-sm" style={{ color: "var(--fc-muted)" }}>
-                No sales history for {primaryStyle.name}
-                {filterLabel ? ` (${filterLabel})` : ""} in this window.
-              </p>
+              <>
+                <AssumptionNote>
+                  No sales history for {primaryStyle.name}
+                  {filterLabel ? ` (${filterLabel})` : ""} in this window{allProducts ? ` - showing monthly sales for all products${storeId ? " in this store" : ""} instead.` : "."}
+                </AssumptionNote>
+                {allProducts &&
+                  (() => {
+                    const pts = [
+                      ...allProducts.history.map((p) => ({ date: p.date, value: p.value, low: p.value, high: p.value, isForecast: false })),
+                      ...allProducts.forecast.map((f) => ({ date: f.date, value: f.expected, low: f.low, high: f.high, isForecast: true })),
+                    ];
+                    const aStep = niceStep(Math.max(1, ...pts.map((p) => p.high)) / 4);
+                    const aTicks = Math.max(1, Math.ceil(Math.max(1, ...pts.map((p) => p.high)) / aStep));
+                    const aYMax = aStep * aTicks;
+                    const ax = (i: number) => PAD_L + (pts.length <= 1 ? 0 : (i / (pts.length - 1)) * plotW);
+                    const ay = (v: number) => PAD_T + plotH - (Math.min(v, aYMax) / aYMax) * plotH;
+                    const firstF = allProducts.history.length;
+                    const actual: Point[] = pts.slice(0, firstF).map((p, i) => ({ x: ax(i), y: ay(p.value) }));
+                    const tail = pts.slice(firstF - 1);
+                    const expected: Point[] = tail.map((p, i) => ({ x: ax(firstF - 1 + i), y: ay(p.value) }));
+                    const top: Point[] = tail.map((p, i) => ({ x: ax(firstF - 1 + i), y: ay(p.high) }));
+                    const bottom: Point[] = tail.map((p, i) => ({ x: ax(firstF - 1 + i), y: ay(p.low) }));
+                    const color = "var(--fc-s-primary)";
+                    const slots: HoverSlot[] = pts.map((p, i) => ({
+                      xPct: (ax(i) / CHART_W) * 100,
+                      title: `${monthYearName(p.date)}${p.isForecast ? " · forecast" : ""}`,
+                      rows: [
+                        {
+                          color,
+                          dashed: p.isForecast,
+                          value: unitFormatter.format(p.value),
+                          label: p.isForecast ? "forecast, all products" : "units sold, all products",
+                          note: p.isForecast ? `${unitFormatter.format(p.low)}–${unitFormatter.format(p.high)}` : undefined,
+                        },
+                      ],
+                    }));
+                    return (
+                      <>
+                        <h3 className="fc-h3" style={{ marginTop: "1.25rem" }}>All products - monthly sales</h3>
+                        <p className="fc-card-sub">Net units per month from the Odoo sales sync, completed months only.</p>
+                        <div className="mt-3 overflow-x-auto">
+                          <div style={{ minWidth: 560 }}>
+                            <ChartHover slots={slots} topPct={(PAD_T / CHART_H) * 100} bottomPct={((PAD_T + plotH) / CHART_H) * 100}>
+                              <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} className="block h-auto w-full" role="img" aria-label="Units sold per month across all products, actual and forecast">
+                                {Array.from({ length: aTicks }, (_, i) => aStep * (i + 1)).map((t) => (
+                                  <g key={t}>
+                                    <line x1={PAD_L} x2={CHART_W - PAD_R} y1={ay(t)} y2={ay(t)} stroke="var(--fc-grid)" strokeWidth={1} />
+                                    <text x={PAD_L - 8} y={ay(t) + 4} textAnchor="end" className="fc-chart-text">{unitFormatter.format(t)}</text>
+                                  </g>
+                                ))}
+                                <line x1={PAD_L} x2={CHART_W - PAD_R} y1={ay(0)} y2={ay(0)} stroke="#c9cad0" strokeWidth={1} />
+                                <path d={smoothBandPath(top, bottom)} fill={color} opacity={0.12} />
+                                <path d={smoothPath(actual)} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" />
+                                <path d={smoothPath(expected)} fill="none" stroke={color} strokeWidth={2} strokeDasharray="5 4" />
+                                {pts.map((p, i) => (
+                                  <circle key={p.date} cx={ax(i)} cy={ay(p.value)} r={4} fill={p.isForecast ? "#fff" : color} stroke={p.isForecast ? color : "#fff"} strokeWidth={2} />
+                                ))}
+                                {pts.map((p, i) => (
+                                  <text key={p.date} x={ax(i)} y={CHART_H - PAD_B + 20} textAnchor="middle" className="fc-chart-text">
+                                    {i === 0 || p.date.slice(5, 7) === "01" ? monthYearName(p.date) : monthName(p.date)}
+                                  </text>
+                                ))}
+                              </svg>
+                            </ChartHover>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+              </>
             ) : (
               <>
                 {/* On a phone the chart keeps a readable width and scrolls sideways instead of shrinking its labels. */}

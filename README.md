@@ -410,6 +410,15 @@ and `/forecast/lead-times` keep the older look. The descriptions below
 of what each number means are unchanged; where they mention the
 planner's "mini stock chart", that is now the "Projected stock" card.
 
+**Default product and the empty case.** With no product chosen the page
+opens on the best seller (most net units) in the selected window, not
+the first name alphabetically. If the selected product has no sales in
+the window, the "Quantity sold" card shows total monthly sales across
+all products instead (completed months, with a forecast), under a note
+saying so; "All history" is capped at 24 months for that total.
+`fetchPeriodDemand` and the product list are read page by page, since
+both can exceed the API's 1000-row page.
+
 The forecasting module's main screen: a filter row (product type-ahead,
 colour/size/store, an optional "+ Compare" second product, Past/Next
 range), one chart, and a collapsed-by-default PO planner panel below it.
