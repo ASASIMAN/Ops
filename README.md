@@ -393,6 +393,23 @@ all need real credentials/exports that haven't been provided yet.
 
 ## PO Planning Chart (/forecast)
 
+**Look (dashboard restyle).** The page is laid out as a dark band (title,
+"Export data", and the filter row) with four stat tiles overlapping its
+lower edge - units sold in the last full month (with change vs the month
+before), next month's forecast and range, stock on hand with weeks of
+cover, and the suggested PO with its order-by date - then two white
+cards: the "Quantity sold" line chart and a "Projected stock" bar chart
+(month-end stock, safety-stock line, the month stock reaches it shown as
+the dark bar), and the PO planner as a collapsed card below. Both charts
+have a hover tooltip (`chart-hover.tsx`, the only client-side code on the
+page) and the sales chart has a "View as table" toggle. "Export data"
+downloads what the sales chart shows as CSV. Styles are in
+`src/app/forecast/dash.css`, scoped to `.fc-dash`; like `/operations`
+this page is always light, whatever the OS theme. `/forecast/overview`
+and `/forecast/lead-times` keep the older look. The descriptions below
+of what each number means are unchanged; where they mention the
+planner's "mini stock chart", that is now the "Projected stock" card.
+
 The forecasting module's main screen: a filter row (product type-ahead,
 colour/size/store, an optional "+ Compare" second product, Past/Next
 range), one chart, and a collapsed-by-default PO planner panel below it.
