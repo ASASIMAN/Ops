@@ -419,6 +419,21 @@ saying so; "All history" is capped at 24 months for that total.
 `fetchPeriodDemand` and the product list are read page by page, since
 both can exceed the API's 1000-row page.
 
+**Months and stock on hand (fixes).** The sales query only returns
+months that had sales, so the page now fills the selected window with
+one point per month (0 where nothing sold) - "Past 6 months" always
+shows six months. The forecast is fit from the product's first month
+with sales through the last full month; its first step is the current
+month (shown as MTD + projection), and the months after it are the
+forecast points, dated by calendar month (the engine used to step
+monthly buckets by 30/31 days, which mislabelled them). Stock on hand
+is read for the selected product only, page by page (reading every
+product's rows was cut off at 1000). The stock sync itself now reads
+all products, saves in chunks, fails loudly on a save error, and zeroes
+product/location pairs Odoo no longer reports. It runs from the "Sync
+stock from Odoo" button on `/forecast` and with the daily sales cron
+(`/api/sync/odoo`).
+
 The forecasting module's main screen: a filter row (product type-ahead,
 colour/size/store, an optional "+ Compare" second product, Past/Next
 range), one chart, and a collapsed-by-default PO planner panel below it.

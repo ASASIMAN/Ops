@@ -36,6 +36,7 @@ import {
 } from "@/lib/forecast/planner";
 import { niceStep, smoothPath, smoothBandPath, type Point } from "@/lib/viz/chart-utils";
 import { ChartHover, type HoverSlot } from "./chart-hover";
+import { syncStockNowAction } from "./overview/actions";
 import "./dash.css";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +48,7 @@ const NEXT_OPTIONS = [1, 3, 6] as const;
 const DEFAULT_LOW_VOLUME_THRESHOLD = 10;
 
 const unitFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const stockSyncFormatter = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Makassar", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const monthLabelFormatter = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", month: "short" });
 const monthYearLabelFormatter = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", month: "short", year: "numeric" });
 
@@ -61,6 +63,22 @@ function endOfMonthIso(monthIso: string): string {
   const d = new Date(`${monthIso}T00:00:00Z`);
   const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
   return last.toISOString().slice(0, 10);
+}
+/**
+ * One entry per calendar month from `fromMonthIso` up to (not including)
+ * `toMonthIso`, with 0 for a month that had no sales - the sales query only
+ * returns months that had any, and a skipped month would otherwise vanish
+ * from the chart and shift every later forecast month.
+ */
+function fillMonths(series: Period[], fromMonthIso: string, toMonthIso: string): Period[] {
+  const byMonth = new Map(series.map((p) => [p.date, p.value]));
+  const out: Period[] = [];
+  const d = new Date(`${fromMonthIso}T00:00:00Z`);
+  for (let iso = d.toISOString().slice(0, 10); iso < toMonthIso; iso = d.toISOString().slice(0, 10)) {
+    out.push({ date: iso, value: byMonth.get(iso) ?? 0 });
+    d.setUTCMonth(d.getUTCMonth() + 1);
+  }
+  return out;
 }
 function trimToPast<T>(items: T[], pastMonths: number): T[] {
   return pastMonths === 0 ? items : items.slice(-pastMonths);
@@ -291,8 +309,12 @@ export default async function ForecastChartPage({
     // subset, which would be a much sparser series) and then scaled down by
     // the trailing-mix share for the selected colour/size - same rule as
     // the PO grid's own allocation.
-    const styleMonthlySeries = await fetchStyleMonthlyNetUnits(supabase, styleProductIds, storeIdsForSales, historyFrom, currentMonthIso);
-    const forecastResult = forecast(styleMonthlySeries, { horizon: forecastHorizonMonths });
+    const styleRawSeries = await fetchStyleMonthlyNetUnits(supabase, styleProductIds, storeIdsForSales, historyFrom, currentMonthIso);
+    // Fit from the product's first month with sales (months before it launched aren't zero-demand months) through the last full month, zero-filling gaps.
+    const styleMonthlySeries = styleRawSeries.length ? fillMonths(styleRawSeries, styleRawSeries[0].date, currentMonthIso) : [];
+    // The series ends at the last full month, so the first forecast step is the CURRENT month (shown on the chart as month-to-date + projection); one extra step keeps `forecastHorizonMonths` future months after it. Dates are set by calendar month here.
+    const rawForecast = forecast(styleMonthlySeries, { horizon: forecastHorizonMonths + 1 });
+    const forecastResult: ForecastResult = { ...rawForecast, forecast: rawForecast.forecast.map((f, i) => ({ ...f, date: monthStart(today, i) })) };
 
     let drilldownFraction: number | null = 1;
     if (colorFilter || sizeFilter) {
@@ -303,14 +325,17 @@ export default async function ForecastChartPage({
     }
 
     const upliftFactors = poPlanningSchemaOk ? await fetchUpliftFactors(supabase, style.templateId, merges) : [];
-    const upliftedForecast = forecastResult.forecast.map((f) => {
+    // Months AFTER the current one.
+    const upliftedForecast = forecastResult.forecast.slice(1).map((f) => {
       const totalFraction = upliftFactors.reduce((sum, factor) => sum + upliftOverlapFraction(f.date, factor) * (factor.upliftPct / 100), 0);
       const multiplier = (1 + totalFraction) * (drilldownFraction ?? 0);
       return { date: f.date, expected: f.expected * multiplier, low: f.low * multiplier, high: f.high * multiplier };
     });
 
     // Displayed actual history IS scoped to the colour/size filter (real data, shown at whatever scope is selected).
-    const monthlySeries = await fetchStyleMonthlyNetUnits(supabase, filteredProductIds, storeIdsForSales, historyFrom, currentMonthIso);
+    // Every month of the selected window is shown, 0 where nothing sold ("All" starts at the first month with sales).
+    const rawMonthlySeries = await fetchStyleMonthlyNetUnits(supabase, filteredProductIds, storeIdsForSales, historyFrom, currentMonthIso);
+    const monthlySeries = fillMonths(rawMonthlySeries, pastMonths === 0 ? (rawMonthlySeries[0]?.date ?? currentMonthIso) : historyFrom, currentMonthIso);
     const dailyThisMonth = await fetchStyleDailyNetUnits(supabase, filteredProductIds, storeIdsForSales, currentMonthIso, addDaysIso(todayIso, 1));
     const mtd = computeMonthToDate(dailyThisMonth, today);
 
@@ -404,7 +429,7 @@ export default async function ForecastChartPage({
     }),
     { key: `${currentMonthIso}-mtd`, label: "MTD", monthIso: currentMonthIso },
     { key: `${currentMonthIso}-proj`, label: "Proj.", monthIso: currentMonthIso },
-    ...primarySeries.upliftedForecast.slice(0, nextMonths).map((f) => ({ key: f.date, label: monthLabelFormatter.format(new Date(`${f.date}T00:00:00Z`)), monthIso: f.date })),
+    ...primarySeries.upliftedForecast.slice(0, nextMonths).map((f) => ({ key: f.date, label: (f.date.slice(5, 7) === "01" ? monthYearLabelFormatter : monthLabelFormatter).format(new Date(`${f.date}T00:00:00Z`)), monthIso: f.date })),
   ];
   const todayIdx = trimmedHistory.length;
   const projIdx = todayIdx + 1;
@@ -431,7 +456,16 @@ export default async function ForecastChartPage({
 
 
   // --- Planner (primary product only) ---
-  const planStockLevels = await fetchStockLevels(supabase);
+  const planStockLevels = await fetchStockLevels(supabase, primaryVariants.map((v) => v.productId));
+  const { data: lastStockSync } = await supabase
+    .from("sync_runs")
+    .select("status, started_at, error_message")
+    .eq("sync_type", "stock")
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const stockSyncedAt = planStockLevels.rows.reduce<string | null>((latest, r) => (!latest || r.syncedAt > latest ? r.syncedAt : latest), null);
+  const returnTo = `/forecast?${new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => typeof e[1] === "string" && !!e[1])).toString()}`;
   let planStockOffice = 0;
   let planStockStores = 0;
   for (const r of planStockLevels.rows) {
@@ -733,6 +767,21 @@ export default async function ForecastChartPage({
             <div className="fc-tile-label">Suggested PO · {coverageMonths}-month cover after arrival</div>
           </div>
         </div>
+        <form action={syncStockNowAction} className="mt-3 flex flex-wrap items-center gap-3">
+          <input type="hidden" name="returnTo" value={returnTo} />
+          <button type="submit" className="fc-btn fc-btn-light" style={{ background: "#fff" }}>Sync stock from Odoo</button>
+          <span className="fc-card-sub" style={{ marginTop: 0 }}>
+            {lastStockSync
+              ? `Last stock sync: ${lastStockSync.status}, ${stockSyncFormatter.format(new Date(lastStockSync.started_at))} (Bali time).`
+              : "Stock has never been synced from Odoo."}{" "}
+            {stockSyncedAt ? "" : `No stock rows are stored for ${primaryStyle.name} - it shows 0 until a sync finds some in Odoo. `}
+            Also runs automatically every day with the sales sync.
+          </span>
+        </form>
+        {lastStockSync?.status === "error" && (
+          <AssumptionNote bad>Last stock sync failed: {lastStockSync.error_message ?? "unknown error"}. Stock on hand below may be out of date.</AssumptionNote>
+        )}
+        {planStockLevels.unavailable && <AssumptionNote bad>Stock levels couldn&apos;t be read, so stock on hand shows 0.</AssumptionNote>}
         {scopeIsNarrowed && (
           <p className="fc-card-sub">
             Sold and forecast follow the colour, size and store filters. Stock on hand and the suggested PO are always for the whole product across all locations.
