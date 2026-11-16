@@ -21,15 +21,30 @@ export async function fetchPeriodDemand(
   supabase: SupabaseClient,
   args: PeriodDemandArgs,
 ): Promise<{ rows: DemandRow[]; error: string | null }> {
-  const { data, error } = await supabase.rpc("ops_period_demand", {
-    p_from: args.from,
-    p_to: args.to,
-    p_bucket: args.bucket,
-    p_store_ids: args.storeIds?.length ? args.storeIds : null,
-    p_product_ids: args.productIds?.length ? args.productIds : null,
-  });
-  if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as DemandRow[], error: null };
+  // One row per product x store x period, so a style with many variants
+  // (or an all-products query) easily exceeds the API's 1000-row page -
+  // read every page, in a fully specified order so pages can't overlap.
+  const PAGE = 1000;
+  const rows: DemandRow[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .rpc("ops_period_demand", {
+        p_from: args.from,
+        p_to: args.to,
+        p_bucket: args.bucket,
+        p_store_ids: args.storeIds?.length ? args.storeIds : null,
+        p_product_ids: args.productIds?.length ? args.productIds : null,
+      })
+      .order("bucket_date")
+      .order("product_id")
+      .order("store_id")
+      .range(from, from + PAGE - 1);
+    if (error) return { rows: [], error: error.message };
+    const page = (data ?? []) as DemandRow[];
+    rows.push(...page);
+    if (page.length < PAGE) break;
+  }
+  return { rows, error: null };
 }
 
 export interface StockLevelRow {

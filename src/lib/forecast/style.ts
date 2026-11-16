@@ -22,6 +22,8 @@ export async function hasPoPlanningSchema(supabase: SupabaseClient): Promise<boo
 export interface StyleOption {
   templateId: number;
   name: string;
+  /** Every variant (product row) of the style, merged duplicates included. */
+  productIds: number[];
 }
 
 /**
@@ -66,13 +68,21 @@ export function templateIdGroup(canonicalTemplateId: number, merges: StyleMergeM
  * collision would make one of them silently unreachable.
  */
 export async function fetchStyleOptions(supabase: SupabaseClient, merges: StyleMergeMap): Promise<StyleOption[]> {
-  const { data } = await supabase
-    .from("products")
-    .select("odoo_template_id, name")
-    .order("name");
+  // Paged: the products table has one row per variant and can exceed the API's 1000-row page.
+  const data: { id: number; odoo_template_id: number; name: string }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data: page } = await supabase
+      .from("products")
+      .select("id, odoo_template_id, name")
+      .order("name")
+      .order("id")
+      .range(from, from + 999);
+    data.push(...(page ?? []));
+    if (!page || page.length < 1000) break;
+  }
 
   const byTemplate = new Map<number, string>();
-  for (const r of data ?? []) {
+  for (const r of data) {
     const canonical = toCanonicalTemplateId(r.odoo_template_id, merges);
     if (!byTemplate.has(canonical)) byTemplate.set(canonical, r.name);
   }
@@ -84,10 +94,19 @@ export async function fetchStyleOptions(supabase: SupabaseClient, merges: StyleM
     templateIdsByName.set(name, list);
   }
 
+  const productIdsByTemplate = new Map<number, number[]>();
+  for (const r of data) {
+    const canonical = toCanonicalTemplateId(r.odoo_template_id, merges);
+    const list = productIdsByTemplate.get(canonical) ?? [];
+    list.push(r.id);
+    productIdsByTemplate.set(canonical, list);
+  }
+
   return Array.from(byTemplate.entries())
     .map(([templateId, name]) => ({
       templateId,
       name: (templateIdsByName.get(name)?.length ?? 1) > 1 ? `${name} (#${templateId})` : name,
+      productIds: productIdsByTemplate.get(templateId) ?? [],
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
