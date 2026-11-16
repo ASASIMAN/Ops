@@ -1,0 +1,492 @@
+/*
+ * Look for the /forecast dashboard: a dark band across the top, stat tiles
+ * overlapping its lower edge, and white cards on a light-gray page. Scoped
+ * to `.fc-dash` (set on the page's root element) so /forecast/overview and
+ * /forecast/lead-times keep their current look until they're restyled.
+ *
+ * Like /operations (brand.css), this workspace is always light - there is
+ * no dark variant, whatever the OS is set to - so nothing here uses
+ * Tailwind's `dark:` variants. Type is the brand's Maison Neue (same files
+ * /operations loads); the layout is borrowed from the reference, the
+ * typeface and logo stay ASASI's.
+ */
+
+@font-face {
+  font-family: "Maison Neue";
+  font-weight: 400;
+  font-display: swap;
+  src: local("Maison Neue Book"), local("MaisonNeue-Book"),
+    url("/fonts/MaisonNeue-Book.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Maison Neue";
+  font-weight: 500;
+  font-display: swap;
+  src: local("Maison Neue Medium"), local("MaisonNeue-Medium"),
+    url("/fonts/MaisonNeue-Medium.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Maison Neue";
+  font-weight: 700;
+  font-display: swap;
+  src: local("Maison Neue Bold"), local("MaisonNeue-Bold"),
+    url("/fonts/MaisonNeue-Bold.woff2") format("woff2");
+}
+
+.fc-dash {
+  color-scheme: light;
+  --fc-page: #f5f5f6;
+  --fc-surface: #ffffff;
+  --fc-band: #1f2024;
+  --fc-band-ink: #ffffff;
+  --fc-band-muted: #a3a6ad;
+  --fc-band-line: #3a3c43;
+  --fc-ink: #17181c;
+  --fc-ink-2: #555963;
+  --fc-muted: #8a8e97;
+  --fc-line: #e8e8eb;
+  --fc-grid: #e4e4e8;
+  --fc-wash: #f1f1f3;
+  --fc-bar: #dedfe3;
+  /* Series colours: slots 1-2 of the app's validated categorical palette
+     (src/lib/viz/palette.ts, light steps). */
+  --fc-s-primary: #2a78d6;
+  --fc-s-compare: #eb6834;
+  --fc-good: #1a7f4b;
+  --fc-good-bg: #e4f4ea;
+  --fc-warn: #9a6400;
+  --fc-warn-bg: #fbefd2;
+  --fc-bad: #c2362f;
+  --fc-bad-bg: #fbe6e4;
+
+  min-height: 100vh;
+  background: var(--fc-page);
+  color: var(--fc-ink);
+  font-family: "Maison Neue", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The root layout paints <body> black in dark mode; keep overscroll and
+   the area under the page the same light gray. */
+body:has(.fc-dash) {
+  background-color: #f5f5f6;
+}
+
+.fc-wrap {
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+/* Band ------------------------------------------------------------------ */
+.fc-band {
+  background: var(--fc-band);
+  color: var(--fc-band-ink);
+  padding: 1.75rem 0 5.5rem; /* the tiles are pulled up over the last 4rem */
+}
+.fc-band h1 {
+  font-size: 1.5rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.fc-band-sub {
+  margin-top: 0.25rem;
+  max-width: 34rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--fc-band-muted);
+}
+.fc-band a.fc-band-link {
+  font-size: 0.8125rem;
+  color: var(--fc-band-muted);
+}
+.fc-band a.fc-band-link:hover {
+  color: var(--fc-band-ink);
+}
+
+.fc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.6875rem;
+  color: var(--fc-band-muted);
+}
+.fc-control {
+  height: 2.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--fc-band-line);
+  background: #26272c;
+  color: var(--fc-band-ink);
+  padding: 0 0.7rem;
+  font: inherit;
+  font-size: 0.8125rem;
+}
+.fc-control::placeholder {
+  color: #7b7e86;
+}
+.fc-control:focus-visible,
+.fc-btn:focus-visible {
+  outline: 2px solid #6ea8ee;
+  outline-offset: 1px;
+}
+.fc-check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 2.25rem;
+  font-size: 0.8125rem;
+  color: var(--fc-band-muted);
+}
+
+.fc-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--fc-band-line);
+  background: transparent;
+  color: var(--fc-band-ink);
+  padding: 0 0.9rem;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fc-btn:hover {
+  background: #2c2d33;
+}
+/* The same button on a white card. */
+.fc-btn-light {
+  border-color: var(--fc-line);
+  color: var(--fc-ink);
+}
+.fc-btn-light:hover {
+  background: var(--fc-wash);
+}
+.fc-btn-solid {
+  border-color: var(--fc-ink);
+  background: var(--fc-ink);
+  color: #fff;
+}
+.fc-btn-solid:hover {
+  background: #2c2d33;
+}
+
+/* Cards and tiles ------------------------------------------------------- */
+.fc-card {
+  background: var(--fc-surface);
+  border: 1px solid var(--fc-line);
+  border-radius: 0.75rem;
+}
+.fc-card-pad {
+  padding: 1.5rem;
+}
+.fc-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 1rem;
+  font-weight: 500;
+}
+.fc-card-sub {
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--fc-muted);
+}
+
+.fc-tiles {
+  margin-top: -4rem;
+  display: grid;
+  gap: 0.875rem;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+@media (min-width: 640px) {
+  .fc-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1024px) {
+  .fc-tiles {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.fc-tile {
+  padding: 1.15rem 1.25rem 1.2rem;
+}
+.fc-tile-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2rem;
+}
+.fc-tile-icon {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  background: #e9f1fb;
+  color: #1f5fae;
+}
+.fc-tile-value {
+  margin-top: 0.9rem;
+  font-size: 1.75rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.fc-tile-unit {
+  margin-left: 0.3rem;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--fc-muted);
+}
+.fc-tile-label {
+  margin-top: 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--fc-ink-2);
+}
+.fc-tile-aside {
+  font-size: 0.75rem;
+  color: var(--fc-muted);
+  text-align: right;
+}
+
+.fc-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-weight: 500;
+}
+.fc-delta-up {
+  color: var(--fc-good);
+}
+.fc-delta-down {
+  color: var(--fc-bad);
+}
+
+.fc-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+.fc-badge-ok {
+  background: var(--fc-good-bg);
+  color: var(--fc-good);
+}
+.fc-badge-low {
+  background: var(--fc-warn-bg);
+  color: var(--fc-warn);
+}
+.fc-badge-risk {
+  background: var(--fc-bad-bg);
+  color: var(--fc-bad);
+}
+.fc-badge-plain {
+  background: var(--fc-wash);
+  color: var(--fc-ink-2);
+}
+
+.fc-note {
+  margin-top: 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid #f0d9a4;
+  background: #fdf6e3;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: #7a5200;
+}
+.fc-note-bad {
+  border-color: #f1c2be;
+  background: var(--fc-bad-bg);
+  color: #8f241f;
+  font-weight: 500;
+}
+.fc-note code {
+  font-size: 0.6875rem;
+}
+
+.fc-help {
+  display: inline-flex;
+  height: 1rem;
+  width: 1rem;
+  cursor: help;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid #c9cad0;
+  font-size: 0.625rem;
+  line-height: 1;
+  color: var(--fc-muted);
+}
+
+/* Legend keys mirror the mark: a stroke for lines, a block for bars. */
+.fc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 1.1rem;
+  font-size: 0.8125rem;
+  color: var(--fc-ink-2);
+}
+.fc-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.fc-key-line {
+  display: inline-block;
+  width: 1.4rem;
+  border-top: 2px solid currentColor;
+}
+.fc-key-dash {
+  border-top-style: dashed;
+}
+
+/* Chart tooltip (shared by both charts). */
+.fc-tip {
+  position: absolute;
+  z-index: 10;
+  min-width: 9rem;
+  pointer-events: none;
+  border-radius: 0.5rem;
+  background: var(--fc-band);
+  padding: 0.55rem 0.7rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: #fff;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+  white-space: nowrap;
+}
+.fc-tip-title {
+  color: #c4c6cc;
+}
+.fc-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.fc-tip-row strong {
+  font-weight: 700;
+}
+.fc-tip-muted {
+  color: #a9acb3;
+}
+
+/* Tables and the planner (on a white card). */
+.fc-table {
+  width: 100%;
+  text-align: left;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+.fc-table th {
+  padding: 0.4rem 0.6rem;
+  font-weight: 400;
+  color: var(--fc-muted);
+}
+.fc-table td {
+  padding: 0.4rem 0.6rem;
+  border-top: 1px solid var(--fc-line);
+}
+.fc-cell-input {
+  height: 1.9rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--fc-line);
+  background: #fff;
+  padding: 0 0.5rem;
+  text-align: right;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--fc-ink);
+}
+.fc-details > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem 1.5rem;
+}
+.fc-details > summary::-webkit-details-marker {
+  display: none;
+}
+.fc-details > summary::after {
+  content: "+";
+  font-size: 1.1rem;
+  color: var(--fc-muted);
+}
+.fc-details[open] > summary::after {
+  content: "\2212";
+}
+.fc-details-body {
+  border-top: 1px solid var(--fc-line);
+  padding: 1.5rem;
+}
+.fc-table-toggle > summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--fc-ink-2);
+}
+
+/* The shared shell header sits directly above the band: make it part of it
+   (it would otherwise follow the OS theme and clash with the light page). */
+body:has(.fc-dash) header {
+  background: #1f2024;
+  color: #fff;
+  border-bottom-color: #3a3c43;
+}
+body:has(.fc-dash) header a:hover {
+  color: #c4c6cc;
+}
+body:has(.fc-dash) header .text-zinc-500,
+body:has(.fc-dash) header .text-zinc-400 {
+  color: #a3a6ad;
+}
+
+.fc-chart-text {
+  font-size: 11px;
+  fill: var(--fc-muted);
+}
+.fc-grid2 {
+  display: grid;
+  gap: 0.875rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 1024px) {
+  .fc-grid2 {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  }
+}
+.fc-control-light {
+  border-color: var(--fc-line);
+  background: #fff;
+  color: var(--fc-ink);
+}
+.fc-steps {
+  display: grid;
+  gap: 0.75rem 2rem;
+  font-size: 0.8125rem;
+}
+@media (min-width: 640px) {
+  .fc-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.fc-h3 {
+  margin-top: 1.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}

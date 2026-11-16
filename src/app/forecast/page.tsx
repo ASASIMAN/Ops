@@ -30,11 +30,13 @@ import {
   buildPoGrid,
   projectStockTrajectory,
   computeOrderByDate,
+  coverStatus,
   type OpenPoLine,
   type TrajectoryPoint,
 } from "@/lib/forecast/planner";
-import { paletteCss, paletteVar } from "@/lib/viz/palette";
-import { niceStep, linePath, bandPath, type Point } from "@/lib/viz/chart-utils";
+import { niceStep, smoothPath, smoothBandPath, type Point } from "@/lib/viz/chart-utils";
+import { ChartHover, type HoverSlot } from "./chart-hover";
+import "./dash.css";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -76,19 +78,28 @@ function resolveStyleByName(name: string | undefined, styleOptions: StyleOption[
   const trimmed = name.trim().toLowerCase();
   return styleOptions.find((s) => s.name.trim().toLowerCase() === trimmed) ?? null;
 }
-function AssumptionNote({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
-      {children}
-    </p>
-  );
+function AssumptionNote({ children, bad }: { children: React.ReactNode; bad?: boolean }) {
+  return <p className={`fc-note${bad ? " fc-note-bad" : ""}`}>{children}</p>;
 }
 function HelpIcon({ text }: { text: string }) {
   return (
-    <span title={text} className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-zinc-400 text-[9px] leading-none text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">
+    <span title={text} className="fc-help">
       ?
     </span>
   );
+}
+function TileIcon({ d }: { d: string }) {
+  return (
+    <span className="fc-tile-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d={d} />
+      </svg>
+    </span>
+  );
+}
+function csvField(value: string | number): string {
+  const s = String(value);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 /** Preserves the current filters as hidden fields on a sub-form (datalist inputs and checkboxes aren't re-sent unless repeated as hidden fields here). */
 function HiddenParams({ params, except }: { params: SearchParams; except: string[] }) {
@@ -375,10 +386,10 @@ export default async function ForecastChartPage({
     ...series.flatMap((s) => s.upliftedForecast.slice(0, nextMonths).map((f) => f.high)),
   );
   const step = niceStep(maxUnits / 4);
-  const yMax = step * 5;
+  const yTicks = Math.max(1, Math.ceil(maxUnits / step));
+  const yMax = step * yTicks;
   const yFor = (v: number) => PAD_T + plotH - (Math.min(v, yMax) / yMax) * plotH;
 
-  const paletteKeys = series.map((s) => s.key);
 
   // --- Planner (primary product only) ---
   const planStockLevels = await fetchStockLevels(supabase);
@@ -421,327 +432,564 @@ export default async function ForecastChartPage({
   const planAllocationShares = await fetchAllocationShares(supabase, primaryVariants, today.toISOString(), aliases);
   const grid = await buildPoGrid(supabase, primaryVariants, plannerCalc.suggestedPoQty, planAllocationShares, primaryLeadTimeProductId, aliases);
 
+
+  // --- Stat tiles ---
+  const lastMonth = trimmedHistory[trimmedHistory.length - 1] ?? null;
+  const prevMonth = trimmedHistory[trimmedHistory.length - 2] ?? null;
+  const soldDeltaPct = lastMonth && prevMonth && prevMonth.value > 0 ? ((lastMonth.value - prevMonth.value) / prevMonth.value) * 100 : null;
+  const nextForecast = primarySeries.upliftedForecast[0] ?? null;
+  const totalStock = planStockOffice + planStockStores;
+  const cover = coverStatus(totalStock, planDailyForecastRate, primaryLeadTimeResolution.maxDays, coverageDays);
+  const monthName = (iso: string) => monthLabelFormatter.format(new Date(`${iso}T00:00:00Z`));
+  const monthYearName = (iso: string) => monthYearLabelFormatter.format(new Date(`${iso}T00:00:00Z`));
+  const filterLabel = [colorFilter, sizeFilter].filter(Boolean).join(" / ");
+  const scopeIsNarrowed = !!filterLabel || !!storeId;
+
+  // --- Main chart geometry (per series, placed by month so two products with different histories stay aligned) ---
+  const historyIdx = new Map(trimmedHistory.map((p, i) => [p.date, i]));
+  const seriesColor = (key: string) => `var(--fc-s-${key === "compare" ? "compare" : "primary"})`;
+  const chartSeries = series.map((s) => {
+    const history = trimToPast(s.displayMonths, pastMonths).filter((p) => historyIdx.has(p.date));
+    const forecastShown = s.upliftedForecast.slice(0, nextMonths);
+    return { s, history, forecastShown, color: seriesColor(s.key) };
+  });
+  const forecastOrigin = (s: SeriesData): Point => ({ x: xFor(projIdx), y: yFor(s.mtd.projectedFullMonthUnits) });
+
+  const mainSlots: HoverSlot[] = xPoints.map((xp, i) => {
+    const rows: HoverSlot["rows"] = [];
+    for (const { s, history, forecastShown, color } of chartSeries) {
+      const name = series.length > 1 ? s.label : "";
+      if (i < todayIdx) {
+        const p = history.find((h) => h.date === xp.monthIso);
+        if (!p) continue;
+        const stockoutDays = s.stockoutDaysByMonth.get(p.date);
+        rows.push({
+          color,
+          value: unitFormatter.format(p.value),
+          label: name || "units sold",
+          note: [p.adjusted ? "adjusted for stockouts" : "", stockoutDays ? `${stockoutDays} stockout day${stockoutDays > 1 ? "s" : ""}` : ""].filter(Boolean).join(", ") || undefined,
+        });
+      } else if (i === todayIdx) {
+        rows.push({ color, value: unitFormatter.format(s.mtd.mtdUnits), label: name || "units so far", note: `day ${s.mtd.daysElapsed} of ${s.mtd.daysInMonth}` });
+      } else if (i === projIdx) {
+        rows.push({ color, dashed: true, value: unitFormatter.format(s.mtd.projectedFullMonthUnits), label: name || "projected full month" });
+      } else {
+        const f = forecastShown[i - forecastStartIdx];
+        if (!f) continue;
+        rows.push({ color, dashed: true, value: unitFormatter.format(f.expected), label: name || "forecast", note: `${unitFormatter.format(f.low)}–${unitFormatter.format(f.high)}` });
+      }
+    }
+    const title =
+      i < todayIdx
+        ? monthYearName(xp.monthIso)
+        : i === todayIdx
+          ? `${monthYearName(xp.monthIso)} · month to date`
+          : i === projIdx
+            ? `${monthYearName(xp.monthIso)} · projected`
+            : `${monthYearName(xp.monthIso)} · forecast`;
+    return { xPct: (xFor(i) / CHART_W) * 100, title, rows };
+  });
+
+  // --- Stock chart (bars, one per month-end) ---
+  const STOCK_W = 360;
+  const STOCK_H = 320;
+  const sPadL = 44;
+  const sPadR = 12;
+  const sPadT = 32;
+  const sPadB = 28;
+  const sPlotW = STOCK_W - sPadL - sPadR;
+  const sPlotH = STOCK_H - sPadT - sPadB;
+  const stockMonths = [currentMonthIso, ...xPoints.slice(forecastStartIdx).map((p) => p.monthIso)];
+  const stockSlotW = sPlotW / stockMonths.length;
+  const stockBarW = Math.min(24, stockSlotW * 0.6);
+  const sXFor = (i: number) => sPadL + stockSlotW * (i + 0.5);
+  const stockBars = stockMonths.map((m) => {
+    const p = sampleTrajectory(trajectory, endOfMonthIso(m));
+    return { monthIso: m, low: p?.low ?? 0, high: p?.high ?? 0 };
+  });
+  const maxStock = Math.max(1, ...stockBars.map((b) => b.low), plannerCalc.safetyStock);
+  const sStep = niceStep(maxStock / 4);
+  const sTicks = Math.max(1, Math.ceil(maxStock / sStep));
+  const sYMax = sStep * sTicks;
+  const sYFor = (v: number) => sPadT + sPlotH - (Math.min(v, sYMax) / sYMax) * sPlotH;
+  const crossingMonth = orderBy.crossesSafetyStockDate ? `${orderBy.crossesSafetyStockDate.slice(0, 7)}-01` : null;
+  const stockSlots: HoverSlot[] = stockBars.map((b, i) => ({
+    xPct: (sXFor(i) / STOCK_W) * 100,
+    title: `End of ${monthYearName(b.monthIso)}`,
+    rows: [
+      { value: unitFormatter.format(b.low), label: b.high > b.low ? "units, if open POs land late" : "units projected" },
+      ...(b.high > b.low ? [{ value: unitFormatter.format(b.high), label: "units, if they land early" }] : []),
+      { value: unitFormatter.format(plannerCalc.safetyStock), label: "safety stock" },
+    ],
+  }));
+
+  // --- "Export data": what the sales chart shows, as CSV ---
+  const exportLines = [["Product", "Month", "Type", "Units", "Low", "High"].join(",")];
+  for (const { s, history, forecastShown } of chartSeries) {
+    for (const p of history) exportLines.push([s.label, p.date.slice(0, 7), p.adjusted ? "actual (adjusted for stockouts)" : "actual", Math.round(p.value), "", ""].map(csvField).join(","));
+    exportLines.push([s.label, currentMonthIso.slice(0, 7), "month to date", Math.round(s.mtd.mtdUnits), "", ""].map(csvField).join(","));
+    exportLines.push([s.label, currentMonthIso.slice(0, 7), "projected full month", Math.round(s.mtd.projectedFullMonthUnits), "", ""].map(csvField).join(","));
+    for (const f of forecastShown) exportLines.push([s.label, f.date.slice(0, 7), "forecast", Math.round(f.expected), Math.round(f.low), Math.round(f.high)].map(csvField).join(","));
+  }
+  const exportHref = `data:text/csv;charset=utf-8,${encodeURIComponent(exportLines.join("\n") + "\n")}`;
+  const exportName = `forecast-${primaryStyle.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.csv`;
+
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10">
-      <style dangerouslySetInnerHTML={{ __html: paletteCss("fc-chart", paletteKeys) }} />
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">Forecast</h1>
-        <div className="flex items-center gap-3 text-xs">
-          <Link href="/forecast/overview" className="text-zinc-500 hover:underline">Forecasting overview →</Link>
-          <Link href="/forecast/lead-times" className="text-zinc-500 hover:underline">Lead times →</Link>
-        </div>
-      </div>
-
-      {!leadTimeSchemaOk && (
-        <AssumptionNote>
-          Lead-time data isn&apos;t available yet - run <code>supabase/migrations/0027_lead_times.sql</code>, <code>0028_seed_purchase_orders.sql</code>, and <code>0029_po_planning.sql</code>. Using the global default lead time (42-56 days) until then.
-        </AssumptionNote>
-      )}
-      {leadTimeSchemaOk && primaryLeadTimeResolution.usedFallback && <AssumptionNote>{primaryLeadTimeResolution.detail}</AssumptionNote>}
-      {productNotFound && <AssumptionNote>No product named &quot;{params.product}&quot; - showing {primaryStyle.name} instead.</AssumptionNote>}
-      {compareNotFound && <AssumptionNote>No product named &quot;{params.compareProduct}&quot; to compare - ignored.</AssumptionNote>}
-      {primaryStyle.name.includes(" (#") && (
-        <AssumptionNote>
-          Another product in Odoo shares this exact name under a different template id - the id is appended here so both are reachable and this one isn&apos;t silently merged with the other. Worth checking in Odoo whether one is a duplicate.
-        </AssumptionNote>
-      )}
-
-      {/* Filters */}
-      <form className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-zinc-200 p-4 text-xs dark:border-zinc-800" method="get">
-        <datalist id="style-options">
-          {styleOptions.map((s) => <option key={s.templateId} value={s.name} />)}
-        </datalist>
-        <label className="flex flex-col gap-1">
-          Product
-          <input list="style-options" name="product" defaultValue={primaryStyle.name} className="w-56 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
-        </label>
-        <label className="flex flex-col gap-1">
-          + Compare (optional)
-          <input list="style-options" name="compareProduct" defaultValue={compareStyle?.name ?? params.compareProduct ?? ""} placeholder="Another product..." className="w-56 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
-        </label>
-        <label className="flex flex-col gap-1">
-          Colour
-          <select name="color" defaultValue={colorFilter ?? ""} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
-            <option value="">All colours</option>
-            {colorOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          Size
-          <select name="size" defaultValue={sizeFilter ?? ""} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
-            <option value="">All sizes</option>
-            {sizeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          Store
-          <select name="store" defaultValue={params.store ?? "all"} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
-            <option value="all">All stores</option>
-            {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          Past
-          <select name="past" defaultValue={pastMonths} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
-            <option value={6}>6 months</option>
-            <option value={12}>12 months</option>
-            <option value={24}>24 months</option>
-            <option value={0}>All</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          Next
-          <select name="next" defaultValue={nextMonths} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
-            {NEXT_OPTIONS.map((n) => <option key={n} value={n}>{n} month{n > 1 ? "s" : ""}</option>)}
-          </select>
-        </label>
-        <label className="flex items-center gap-2 pb-1">
-          <input type="checkbox" name="adjustStockouts" defaultChecked={adjustStockouts} /> Adjust for stockouts
-        </label>
-        <HiddenParams params={params} except={["product", "compareProduct", "color", "size", "store", "past", "next", "adjustStockouts"]} />
-        <button type="submit" className="rounded bg-zinc-800 px-3 py-1.5 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-200 dark:text-zinc-900">
-          Apply
-        </button>
-      </form>
-
-      {isLowVolume && (
-        <p className="mt-3 inline-block rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
-          Low volume - averaging {avgMonthly.toFixed(1)} units/month over this window, forecast is rough.
-        </p>
-      )}
-
-      {/* Chart */}
-      <div className="mt-4">
-        {isEmpty ? (
-          <p className="rounded-lg border border-zinc-200 p-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
-            No sales history for {primaryStyle.name}{colorFilter || sizeFilter ? ` (${[colorFilter, sizeFilter].filter(Boolean).join(" / ")})` : ""} in this window.
-          </p>
-        ) : (
-          <>
-            <h2 className="flex items-center gap-1.5 text-sm font-medium">
-              Quantity sold <HelpIcon text="Solid line = actual net units sold (sales minus returns), one marker per month. The current month shows month-to-date (filled dot) and a projected full month (hollow dot) separately. Dashed line + band = forecast low/expected/high, widening further out." />
-            </h2>
-            <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} className="mt-2 h-auto w-full" role="img" aria-label="Quantity sold per month, actual and forecast">
-              {Array.from({ length: 5 }, (_, i) => step * (i + 1)).map((t) => (
-                <g key={t}>
-                  <line x1={PAD_L} x2={CHART_W - PAD_R} y1={yFor(t)} y2={yFor(t)} stroke="currentColor" className="text-zinc-200 dark:text-zinc-800" strokeWidth={1} strokeDasharray="3 3" />
-                  <text x={PAD_L - 6} y={yFor(t) + 3} textAnchor="end" className="fill-zinc-400 text-[9px]">{unitFormatter.format(t)}</text>
-                </g>
-              ))}
-              <line x1={PAD_L} x2={CHART_W - PAD_R} y1={yFor(0)} y2={yFor(0)} stroke="currentColor" className="text-zinc-300 dark:text-zinc-700" strokeWidth={1} />
-              <line x1={xFor(todayIdx)} x2={xFor(todayIdx)} y1={PAD_T} y2={PAD_T + plotH} stroke="currentColor" className="text-zinc-400 dark:text-zinc-600" strokeWidth={1} strokeDasharray="2 2" />
-              <text x={xFor(todayIdx)} y={PAD_T - 18} textAnchor="middle" className="fill-zinc-500 text-[9px] font-medium">Today</text>
-              <text x={xFor(forecastStartIdx)} y={PAD_T - 18} className="fill-zinc-400 text-[10px] italic">Prediction</text>
-
-              {series.map((s) => {
-                const historyShown = trimToPast(s.displayMonths, pastMonths);
-                const actualPts: Point[] = historyShown.map((p, i) => ({ x: xFor(i), y: yFor(p.value) }));
-                const expectedLine: Point[] = [
-                  { x: xFor(projIdx), y: yFor(s.mtd.projectedFullMonthUnits) },
-                  ...s.upliftedForecast.slice(0, nextMonths).map((f, i) => ({ x: xFor(forecastStartIdx + i), y: yFor(f.expected) })),
-                ];
-                const bandTop: Point[] = [
-                  { x: xFor(projIdx), y: yFor(s.mtd.projectedFullMonthUnits) },
-                  ...s.upliftedForecast.slice(0, nextMonths).map((f, i) => ({ x: xFor(forecastStartIdx + i), y: yFor(f.high) })),
-                ];
-                const bandBottom: Point[] = [
-                  { x: xFor(projIdx), y: yFor(s.mtd.projectedFullMonthUnits) },
-                  ...s.upliftedForecast.slice(0, nextMonths).map((f, i) => ({ x: xFor(forecastStartIdx + i), y: yFor(f.low) })),
-                ];
-                const color = paletteVar(s.key);
-                return (
-                  <g key={s.key}>
-                    <path d={bandPath(bandTop, bandBottom)} fill={color} opacity={0.15} />
-                    <path d={linePath(actualPts)} fill="none" stroke={color} strokeWidth={2} />
-                    <path d={linePath(expectedLine)} fill="none" stroke={color} strokeWidth={2} strokeDasharray="5 4" />
-                    {historyShown.map((p, i) => (
-                      <circle key={p.date} cx={xFor(i)} cy={yFor(p.value)} r={3} fill={color}>
-                        <title>
-                          {s.label} - {monthLabelFormatter.format(new Date(`${p.date}T00:00:00Z`))}: {unitFormatter.format(p.value)} units{p.adjusted ? " (adjusted for stockouts)" : ""}
-                          {s.stockoutDaysByMonth.get(p.date) ? `, ${s.stockoutDaysByMonth.get(p.date)} stockout day(s)` : ""}
-                        </title>
-                      </circle>
-                    ))}
-                    {historyShown.map((p, i) =>
-                      s.stockoutDaysByMonth.get(p.date) ? <rect key={`so-${p.date}`} x={xFor(i) - 2} y={PAD_T + plotH + 3} width={4} height={4} fill={color} /> : null,
-                    )}
-                    <circle cx={xFor(todayIdx)} cy={yFor(s.mtd.mtdUnits)} r={3} fill={color}>
-                      <title>{s.label} - month to date: {unitFormatter.format(s.mtd.mtdUnits)} units over {s.mtd.daysElapsed}/{s.mtd.daysInMonth} days.</title>
-                    </circle>
-                    <circle cx={xFor(projIdx)} cy={yFor(s.mtd.projectedFullMonthUnits)} r={3} fill="white" stroke={color} strokeWidth={1.5}>
-                      <title>{s.label} - projected full month: {unitFormatter.format(s.mtd.projectedFullMonthUnits)} units.</title>
-                    </circle>
-                    {s.upliftedForecast.slice(0, nextMonths).map((f, i) => (
-                      <circle key={f.date} cx={xFor(forecastStartIdx + i)} cy={yFor(f.expected)} r={3} fill={color}>
-                        <title>{s.label} - {monthLabelFormatter.format(new Date(`${f.date}T00:00:00Z`))} forecast: {unitFormatter.format(f.expected)} ({unitFormatter.format(f.low)}-{unitFormatter.format(f.high)})</title>
-                      </circle>
-                    ))}
-                    {s.drilldownFraction === null && (colorFilter || sizeFilter) && (
-                      <text x={xFor(forecastStartIdx)} y={PAD_T + plotH - 6} className="fill-zinc-400 text-[9px]">no trailing data for this colour/size - forecast is 0</text>
-                    )}
-                  </g>
-                );
-              })}
-              {xPoints.map((p, i) => (
-                <text key={p.key} x={xFor(i)} y={CHART_H - PAD_B + 15} textAnchor="middle" className="fill-zinc-400 text-[9px]">{p.label}</text>
-              ))}
-            </svg>
-            <p className="mt-1 text-[10px] text-zinc-400">■ below the axis = a month with a recorded stockout day.</p>
-
-            <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs">
-              {series.map((s) => (
-                <div key={s.key} className="flex items-center gap-1.5">
-                  <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: paletteVar(s.key) }} />
-                  <span className="font-medium">{s.label}</span>
-                  {s.backtestMape != null && <span className="text-zinc-500">backtest (3mo): {s.backtestMape.toFixed(0)}% MAPE</span>}
-                </div>
-              ))}
+    <div className="fc-dash">
+      {/* Band: title, export, filters */}
+      <div className="fc-band">
+        <div className="fc-wrap">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1>Forecast</h1>
+              <p className="fc-band-sub">
+                {primaryStyle.name}
+                {filterLabel ? ` · ${filterLabel}` : ""}
+                {compareSeries ? ` vs ${compareSeries.label}` : ""}
+              </p>
             </div>
-          </>
-        )}
-      </div>
-
-      {/* PO planner - collapsed by default */}
-      <details className="mt-8 mb-16 rounded-lg border border-zinc-200 dark:border-zinc-800">
-        <summary className="cursor-pointer px-4 py-3 text-sm font-medium">PO planner - {primaryStyle.name}</summary>
-        <div className="border-t border-zinc-200 p-4 text-xs dark:border-zinc-800">
-          {!primaryLeadTimeProductId && (
-            <AssumptionNote>
-              Not linked to a lead-time product - open PO qty can&apos;t be computed. Link it on <Link href="/forecast/lead-times" className="underline">Lead times</Link>.
-            </AssumptionNote>
-          )}
-          {plannerCalc.alreadyLate && (
-            <p className="mt-2 rounded border border-red-300 bg-red-50 px-3 py-2 font-medium text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
-              Already late: projected stock would go negative before a PO placed today could arrive.
-            </p>
-          )}
-
-          <dl className="mt-3 grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
-            {plannerCalc.steps.map((s) => (
-              <div key={s.label}>
-                <div className="flex justify-between">
-                  <dt className="text-zinc-500">{s.label}</dt>
-                  <dd className="font-medium">{unitFormatter.format(s.value)}</dd>
-                </div>
-                <div className="text-[10px] text-zinc-400">{s.formula}</div>
-              </div>
-            ))}
-          </dl>
-
-          {/* Mini stock chart */}
-          <h3 className="mt-4 text-sm font-medium">Projected stock on hand</h3>
-          {(() => {
-            const MINI_W = 680;
-            const MINI_H = 180;
-            const mPadL = 48, mPadR = 12, mPadT = 12, mPadB = 20;
-            const mPlotW = MINI_W - mPadL - mPadR;
-            const mPlotH = MINI_H - mPadT - mPadB;
-            const monthSlots = [currentMonthIso, ...xPoints.slice(forecastStartIdx).map((p) => p.monthIso)];
-            const mXFor = (i: number) => mPadL + (monthSlots.length <= 1 ? 0 : (i / (monthSlots.length - 1)) * mPlotW);
-            const maxStock = Math.max(1, planStockOffice + planStockStores, ...trajectory.map((p) => p.high), plannerCalc.safetyStock);
-            const mStep = niceStep(maxStock / 4);
-            const mYMax = mStep * 5;
-            const mYFor = (v: number) => mPadT + mPlotH - (Math.min(v, mYMax) / mYMax) * mPlotH;
-
-            const lowPts: Point[] = monthSlots.map((m, i) => ({ x: mXFor(i), y: mYFor(sampleTrajectory(trajectory, endOfMonthIso(m))?.low ?? 0) }));
-            const highPts: Point[] = monthSlots.map((m, i) => ({ x: mXFor(i), y: mYFor(sampleTrajectory(trajectory, endOfMonthIso(m))?.high ?? 0) }));
-
-            return (
-              <svg viewBox={`0 0 ${MINI_W} ${MINI_H}`} className="mt-2 h-auto w-full max-w-2xl" role="img" aria-label="Projected stock on hand">
-                {Array.from({ length: 5 }, (_, i) => mStep * (i + 1)).map((t) => (
-                  <line key={t} x1={mPadL} x2={MINI_W - mPadR} y1={mYFor(t)} y2={mYFor(t)} stroke="currentColor" className="text-zinc-200 dark:text-zinc-800" strokeWidth={1} />
-                ))}
-                <path d={bandPath(highPts, lowPts)} fill="currentColor" className="text-zinc-400 dark:text-zinc-500" opacity={0.2} />
-                <path d={linePath(lowPts)} fill="none" stroke="currentColor" className="text-zinc-700 dark:text-zinc-300" strokeWidth={2} strokeDasharray="5 4" />
-                <line x1={mPadL} x2={MINI_W - mPadR} y1={mYFor(plannerCalc.safetyStock)} y2={mYFor(plannerCalc.safetyStock)} stroke="currentColor" className="text-red-500" strokeWidth={1.5}>
-                  <title>Safety stock: {unitFormatter.format(plannerCalc.safetyStock)} units.</title>
-                </line>
-                {orderBy.crossesSafetyStockDate && (
-                  <line
-                    x1={mXFor(monthSlots.findIndex((m) => m.slice(0, 7) === orderBy.crossesSafetyStockDate!.slice(0, 7)))}
-                    x2={mXFor(monthSlots.findIndex((m) => m.slice(0, 7) === orderBy.crossesSafetyStockDate!.slice(0, 7)))}
-                    y1={mPadT}
-                    y2={mPadT + mPlotH}
-                    stroke="currentColor"
-                    className={orderBy.alreadyLate ? "text-red-600" : "text-amber-500"}
-                    strokeWidth={1.5}
-                    strokeDasharray="3 2"
-                  />
-                )}
-                {monthSlots.map((m, i) => (
-                  <text key={m} x={mXFor(i)} y={MINI_H - mPadB + 13} textAnchor="middle" className="fill-zinc-400 text-[9px]">
-                    {i === 0 ? "Today" : monthLabelFormatter.format(new Date(`${m}T00:00:00Z`))}
-                  </text>
-                ))}
-              </svg>
-            );
-          })()}
-          {orderBy.crossesSafetyStockDate ? (
-            <p className={`mt-1 text-[10px] ${orderBy.alreadyLate ? "font-medium text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
-              {orderBy.alreadyLate ? "Already late - " : ""}Order by <strong>{orderBy.orderByDate}</strong> to land before stock reaches the safety-stock level (~{orderBy.crossesSafetyStockDate}).
-            </p>
-          ) : (
-            <p className="mt-1 text-[10px] text-zinc-400">Not projected to reach the safety-stock level within this horizon.</p>
-          )}
-
-          <h3 className="mt-4 text-sm font-medium">What if I order X?</h3>
-          <form className="mt-1 flex items-end gap-2" method="get">
-            <HiddenParams params={params} except={["whatIfQty"]} />
-            <input type="number" name="whatIfQty" min={0} defaultValue={params.whatIfQty ?? ""} placeholder="qty" className="w-24 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
-            <button type="submit" className="rounded border border-zinc-300 px-2 py-1 hover:border-zinc-500 dark:border-zinc-700">Simulate</button>
-          </form>
-          {whatIf && (
-            <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-              Stock on landing: <strong>{unitFormatter.format(whatIf.stockAfterLanding)}</strong>.{" "}
-              {whatIf.projectedStockoutDate ? <>Projected to run out around <strong>{whatIf.projectedStockoutDate}</strong>.</> : "Not projected to run out within a year at the current forecast rate."}
-            </p>
-          )}
-
-          <h3 className="mt-6 text-sm font-medium">Suggested PO - colour × size</h3>
-          <p className="mt-1 text-[10px] text-zinc-500">
-            Suggested qty allocates the style-level total ({unitFormatter.format(plannerCalc.suggestedPoQty)} units) by trailing sales mix - colour over the last 3 months, size over the last 6. A blank cell means no trailing sales to base a share on, not zero demand. Every qty/price cell is editable before exporting.
-          </p>
-          <form action="/api/forecast/export-po" method="post" className="mt-2">
-            <input type="hidden" name="styleName" value={primaryStyle.name} />
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[480px] text-left text-xs">
-                <thead>
-                  <tr className="text-zinc-500">
-                    <th className="px-2 py-1">Style</th>
-                    <th className="px-2 py-1">Colour</th>
-                    <th className="px-2 py-1">Size</th>
-                    <th className="px-2 py-1 text-right">Qty</th>
-                    <th className="px-2 py-1 text-right">CMT price (IDR)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {grid.map((cell, i) => (
-                    <tr key={i} className="border-t border-zinc-100 dark:border-zinc-900">
-                      <td className="px-2 py-1">
-                        <input type="hidden" name={`color_${i}`} value={cell.color ?? ""} />
-                        <input type="hidden" name={`size_${i}`} value={cell.size ?? ""} />
-                        {primaryStyle.name}
-                      </td>
-                      <td className="px-2 py-1">{cell.color ?? "-"}</td>
-                      <td className="px-2 py-1">{cell.size ?? "-"}</td>
-                      <td className="px-2 py-1 text-right">
-                        <input type="number" name={`qty_${i}`} defaultValue={cell.suggestedQty != null ? Math.round(cell.suggestedQty) : ""} className="w-20 rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-right dark:border-zinc-700" />
-                      </td>
-                      <td className="px-2 py-1 text-right">
-                        <input type="number" name={`cmt_${i}`} defaultValue={cell.cmtPriceIdr ?? ""} className="w-28 rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-right dark:border-zinc-700" />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex flex-wrap items-center gap-4">
+              <Link href="/forecast/overview" className="fc-band-link">Overview</Link>
+              <Link href="/forecast/lead-times" className="fc-band-link">Lead times</Link>
+              <a href={exportHref} download={exportName} className="fc-btn">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" />
+                </svg>
+                Export data
+              </a>
             </div>
-            <input type="hidden" name="rowCount" value={grid.length} />
-            <button type="submit" className="mt-3 rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium hover:border-zinc-500 dark:border-zinc-700">
-              Export to CSV (opens in Excel)
+          </div>
+
+          <form className="mt-6 flex flex-wrap items-end gap-3" method="get">
+            <datalist id="style-options">
+              {styleOptions.map((s) => <option key={s.templateId} value={s.name} />)}
+            </datalist>
+            <label className="fc-field">
+              Product
+              <input list="style-options" name="product" defaultValue={primaryStyle.name} className="fc-control w-56" />
+            </label>
+            <label className="fc-field">
+              Compare with
+              <input list="style-options" name="compareProduct" defaultValue={compareStyle?.name ?? params.compareProduct ?? ""} placeholder="Another product (optional)" className="fc-control w-56" />
+            </label>
+            <label className="fc-field">
+              Colour
+              <select name="color" defaultValue={colorFilter ?? ""} className="fc-control">
+                <option value="">All colours</option>
+                {colorOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label className="fc-field">
+              Size
+              <select name="size" defaultValue={sizeFilter ?? ""} className="fc-control">
+                <option value="">All sizes</option>
+                {sizeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            <label className="fc-field">
+              Store
+              <select name="store" defaultValue={params.store ?? "all"} className="fc-control">
+                <option value="all">All stores</option>
+                {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </label>
+            <label className="fc-field">
+              Showing
+              <select name="past" defaultValue={pastMonths} className="fc-control">
+                <option value={6}>Past 6 months</option>
+                <option value={12}>Past 12 months</option>
+                <option value={24}>Past 24 months</option>
+                <option value={0}>All history</option>
+              </select>
+            </label>
+            <label className="fc-field">
+              Forecast
+              <select name="next" defaultValue={nextMonths} className="fc-control">
+                {NEXT_OPTIONS.map((n) => <option key={n} value={n}>Next {n} month{n > 1 ? "s" : ""}</option>)}
+              </select>
+            </label>
+            <label className="fc-check">
+              <input type="checkbox" name="adjustStockouts" defaultChecked={adjustStockouts} /> Adjust for stockouts
+            </label>
+            <HiddenParams params={params} except={["product", "compareProduct", "color", "size", "store", "past", "next", "adjustStockouts"]} />
+            <button type="submit" className="fc-btn" style={{ background: "#fff", color: "#17181c", borderColor: "#fff" }}>
+              Apply
             </button>
           </form>
         </div>
-      </details>
+      </div>
+
+      <div className="fc-wrap" style={{ paddingBottom: "4rem" }}>
+        {/* Stat tiles */}
+        <div className="fc-tiles">
+          <div className="fc-card fc-tile">
+            <div className="fc-tile-top">
+              <TileIcon d="M2.5 13.5h11M4.5 11V7.5M8 11V3.5M11.5 11V6" />
+              {soldDeltaPct != null && prevMonth && (
+                <span className="fc-tile-aside">
+                  <span className={`fc-delta ${soldDeltaPct >= 0 ? "fc-delta-up" : "fc-delta-down"}`}>
+                    {soldDeltaPct >= 0 ? "▲ +" : "▼ −"}
+                    {Math.abs(soldDeltaPct).toFixed(0)}%
+                  </span>{" "}
+                  vs {monthName(prevMonth.date)}
+                </span>
+              )}
+            </div>
+            <div className="fc-tile-value">
+              {lastMonth ? unitFormatter.format(lastMonth.value) : "–"}
+              <span className="fc-tile-unit">units</span>
+            </div>
+            <div className="fc-tile-label">{lastMonth ? `Sold in ${monthYearName(lastMonth.date)}` : "No full month of sales yet"}</div>
+          </div>
+
+          <div className="fc-card fc-tile">
+            <div className="fc-tile-top">
+              <TileIcon d="M2.5 11.5 6 8l2.5 2.5 5-5M10 5.5h3.5V9" />
+              {nextForecast && (
+                <span className="fc-tile-aside">
+                  range {unitFormatter.format(nextForecast.low)}–{unitFormatter.format(nextForecast.high)}
+                </span>
+              )}
+            </div>
+            <div className="fc-tile-value">
+              {nextForecast ? unitFormatter.format(nextForecast.expected) : "–"}
+              <span className="fc-tile-unit">units</span>
+            </div>
+            <div className="fc-tile-label">{nextForecast ? `Forecast for ${monthYearName(nextForecast.date)}` : "No forecast yet"}</div>
+          </div>
+
+          <div className="fc-card fc-tile">
+            <div className="fc-tile-top">
+              <TileIcon d="M2.5 5 8 2.5 13.5 5v6L8 13.5 2.5 11V5ZM2.5 5 8 7.5 13.5 5M8 7.5v6" />
+              <span className={`fc-badge fc-badge-${cover.status}`}>
+                {cover.weeksOfCover == null
+                  ? "No forecast demand"
+                  : `${cover.status === "risk" ? "At risk" : cover.status === "low" ? "Low" : "OK"} · ${cover.weeksOfCover.toFixed(0)} wk cover`}
+              </span>
+            </div>
+            <div className="fc-tile-value">
+              {unitFormatter.format(totalStock)}
+              <span className="fc-tile-unit">units</span>
+            </div>
+            <div className="fc-tile-label">
+              Stock on hand · office {unitFormatter.format(planStockOffice)}, stores {unitFormatter.format(planStockStores)}
+            </div>
+          </div>
+
+          <div className="fc-card fc-tile">
+            <div className="fc-tile-top">
+              <TileIcon d="M3.5 2.5h9v11h-9zM6 5.5h4M6 8h4M6 10.5h2" />
+              {orderBy.orderByDate ? (
+                <span className={`fc-badge ${orderBy.alreadyLate ? "fc-badge-risk" : "fc-badge-plain"}`}>
+                  {orderBy.alreadyLate ? "Late · " : ""}order by {orderBy.orderByDate}
+                </span>
+              ) : (
+                <span className="fc-tile-aside">no order date needed yet</span>
+              )}
+            </div>
+            <div className="fc-tile-value">
+              {unitFormatter.format(plannerCalc.suggestedPoQty)}
+              <span className="fc-tile-unit">units</span>
+            </div>
+            <div className="fc-tile-label">Suggested PO · {coverageMonths}-month cover after arrival</div>
+          </div>
+        </div>
+        {scopeIsNarrowed && (
+          <p className="fc-card-sub">
+            Sold and forecast follow the colour, size and store filters. Stock on hand and the suggested PO are always for the whole product across all locations.
+          </p>
+        )}
+
+        {!leadTimeSchemaOk && (
+          <AssumptionNote>
+            Lead-time data isn&apos;t available yet - run <code>supabase/migrations/0027_lead_times.sql</code>, <code>0028_seed_purchase_orders.sql</code>, and <code>0029_po_planning.sql</code>. Using the global default lead time (42-56 days) until then.
+          </AssumptionNote>
+        )}
+        {leadTimeSchemaOk && primaryLeadTimeResolution.usedFallback && <AssumptionNote>{primaryLeadTimeResolution.detail}</AssumptionNote>}
+        {productNotFound && <AssumptionNote>No product named &quot;{params.product}&quot; - showing {primaryStyle.name} instead.</AssumptionNote>}
+        {compareNotFound && <AssumptionNote>No product named &quot;{params.compareProduct}&quot; to compare - ignored.</AssumptionNote>}
+        {primaryStyle.name.includes(" (#") && (
+          <AssumptionNote>
+            Another product in Odoo shares this exact name under a different template id - the id is appended here so both are reachable and this one isn&apos;t silently merged with the other. Worth checking in Odoo whether one is a duplicate.
+          </AssumptionNote>
+        )}
+        {isLowVolume && (
+          <AssumptionNote>
+            Low volume - averaging {avgMonthly.toFixed(1)} units/month over this window, so the forecast is rough.
+          </AssumptionNote>
+        )}
+
+        <div className="fc-grid2" style={{ marginTop: "0.875rem" }}>
+          {/* Sales chart */}
+          <section className="fc-card fc-card-pad">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="fc-card-title">
+                  Quantity sold{" "}
+                  <HelpIcon text="Solid line = actual net units sold (sales minus returns), one point per month. The current month shows month-to-date and a projected full month separately. Dashed line and shaded band = forecast (expected, with its low-high range), widening further out." />
+                </h2>
+                <p className="fc-card-sub">Net units per month. Dashed line and band are the forecast and its range.</p>
+              </div>
+              <div className="fc-legend">
+                {chartSeries.map(({ s, color }) => (
+                  <span key={s.key} className="fc-key">
+                    <span className="fc-key-line" style={{ color }} />
+                    {series.length > 1 ? s.label : "Sold"}
+                  </span>
+                ))}
+                <span className="fc-key">
+                  <span className="fc-key-line fc-key-dash" style={{ color: "var(--fc-ink-2)" }} />
+                  Forecast
+                </span>
+              </div>
+            </div>
+
+            {isEmpty ? (
+              <p className="py-16 text-center text-sm" style={{ color: "var(--fc-muted)" }}>
+                No sales history for {primaryStyle.name}
+                {filterLabel ? ` (${filterLabel})` : ""} in this window.
+              </p>
+            ) : (
+              <>
+                {/* On a phone the chart keeps a readable width and scrolls sideways instead of shrinking its labels. */}
+                <div className="mt-3 overflow-x-auto">
+                  <div style={{ minWidth: 560 }}>
+                  <ChartHover slots={mainSlots} topPct={(PAD_T / CHART_H) * 100} bottomPct={((PAD_T + plotH) / CHART_H) * 100}>
+                    <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} className="block h-auto w-full" role="img" aria-label="Quantity sold per month, actual and forecast">
+                      {Array.from({ length: yTicks }, (_, i) => step * (i + 1)).map((t) => (
+                        <g key={t}>
+                          <line x1={PAD_L} x2={CHART_W - PAD_R} y1={yFor(t)} y2={yFor(t)} stroke="var(--fc-grid)" strokeWidth={1} />
+                          <text x={PAD_L - 8} y={yFor(t) + 4} textAnchor="end" className="fc-chart-text">{unitFormatter.format(t)}</text>
+                        </g>
+                      ))}
+                      <line x1={PAD_L} x2={CHART_W - PAD_R} y1={yFor(0)} y2={yFor(0)} stroke="#c9cad0" strokeWidth={1} />
+                      <line x1={xFor(todayIdx)} x2={xFor(todayIdx)} y1={PAD_T - 6} y2={PAD_T + plotH} stroke="#b4b6bd" strokeWidth={1} />
+                      <text x={xFor(todayIdx)} y={PAD_T - 12} textAnchor="middle" className="fc-chart-text" style={{ fill: "var(--fc-ink-2)" }}>Today</text>
+
+                      {chartSeries.map(({ s, history, forecastShown, color }) => {
+                        const actualPts: Point[] = history.map((p) => ({ x: xFor(historyIdx.get(p.date)!), y: yFor(p.value) }));
+                        const origin = forecastOrigin(s);
+                        const expectedLine: Point[] = [origin, ...forecastShown.map((f, i) => ({ x: xFor(forecastStartIdx + i), y: yFor(f.expected) }))];
+                        const bandTop: Point[] = [origin, ...forecastShown.map((f, i) => ({ x: xFor(forecastStartIdx + i), y: yFor(f.high) }))];
+                        const bandBottom: Point[] = [origin, ...forecastShown.map((f, i) => ({ x: xFor(forecastStartIdx + i), y: yFor(f.low) }))];
+                        return (
+                          <g key={s.key}>
+                            <path d={smoothBandPath(bandTop, bandBottom)} fill={color} opacity={0.12} />
+                            <path d={smoothPath(actualPts)} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" />
+                            <path d={smoothPath(expectedLine)} fill="none" stroke={color} strokeWidth={2} strokeDasharray="5 4" />
+                            {actualPts.map((pt, i) => (
+                              <circle key={history[i].date} cx={pt.x} cy={pt.y} r={4} fill={color} stroke="#fff" strokeWidth={2} />
+                            ))}
+                            {history.map((p) =>
+                              s.stockoutDaysByMonth.get(p.date) ? (
+                                <rect key={`so-${p.date}`} x={xFor(historyIdx.get(p.date)!) - 2.5} y={PAD_T + plotH + 3} width={5} height={5} fill={color} />
+                              ) : null,
+                            )}
+                            <circle cx={xFor(todayIdx)} cy={yFor(s.mtd.mtdUnits)} r={4} fill={color} stroke="#fff" strokeWidth={2} />
+                            <circle cx={xFor(projIdx)} cy={yFor(s.mtd.projectedFullMonthUnits)} r={4} fill="#fff" stroke={color} strokeWidth={2} />
+                            {forecastShown.map((f, i) => (
+                              <circle key={f.date} cx={xFor(forecastStartIdx + i)} cy={yFor(f.expected)} r={4} fill="#fff" stroke={color} strokeWidth={2} />
+                            ))}
+                            {s.drilldownFraction === null && (colorFilter || sizeFilter) && (
+                              <text x={xFor(forecastStartIdx)} y={PAD_T + plotH - 8} className="fc-chart-text">no recent sales for this colour/size - forecast is 0</text>
+                            )}
+                          </g>
+                        );
+                      })}
+                      {xPoints.map((p, i) => (
+                        <text key={p.key} x={xFor(i)} y={CHART_H - PAD_B + 20} textAnchor="middle" className="fc-chart-text">{p.label}</text>
+                      ))}
+                    </svg>
+                  </ChartHover>
+                  </div>
+                </div>
+                <p className="fc-card-sub">
+                  Filled point = actual, hollow = projected or forecast. A small square under the axis marks a month with a recorded stockout day.
+                  {series.some((s) => s.backtestMape != null) && (
+                    <>
+                      {" "}Backtest over the last 3 months:{" "}
+                      {series.filter((s) => s.backtestMape != null).map((s) => `${series.length > 1 ? `${s.label} ` : ""}${s.backtestMape!.toFixed(0)}% average error`).join(", ")}.
+                    </>
+                  )}
+                </p>
+
+                <details className="fc-table-toggle mt-3">
+                  <summary>View as table</summary>
+                  <div className="mt-2 overflow-x-auto">
+                    <table className="fc-table">
+                      <thead>
+                        <tr>
+                          <th>Month</th>
+                          {chartSeries.map(({ s }) => <th key={s.key} style={{ textAlign: "right" }}>{series.length > 1 ? s.label : "Units"}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mainSlots.map((slot) => (
+                          <tr key={slot.title}>
+                            <td>{slot.title}</td>
+                            {chartSeries.map(({ s }, si) => {
+                              const row = series.length > 1 ? slot.rows.find((r) => r.label === s.label) : slot.rows[si];
+                              return (
+                                <td key={s.key} style={{ textAlign: "right" }}>
+                                  {row ? `${row.value}${row.note && /^\d/.test(row.note) ? ` (${row.note})` : ""}` : "–"}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              </>
+            )}
+          </section>
+
+          {/* Projected stock */}
+          <section className="fc-card fc-card-pad">
+            <h2 className="fc-card-title">
+              Projected stock{" "}
+              <HelpIcon text="Stock on hand at the end of each month: today's stock, minus forecast sales, plus open POs once they arrive (counted at their late ETA). The line is the safety-stock level. The dark bar is the month stock is projected to reach it." />
+            </h2>
+            <p className="fc-card-sub">
+              Units on hand at month end{whatIfQty ? `, including a ${unitFormatter.format(whatIfQty)}-unit order placed today` : ""}.
+            </p>
+            <div className="mt-3">
+              <ChartHover slots={stockSlots} topPct={(sPadT / STOCK_H) * 100} bottomPct={((sPadT + sPlotH) / STOCK_H) * 100} crosshair={false}>
+                <svg viewBox={`0 0 ${STOCK_W} ${STOCK_H}`} className="block h-auto w-full" role="img" aria-label="Projected stock on hand at the end of each month">
+                  {Array.from({ length: sTicks }, (_, i) => sStep * (i + 1)).map((t) => (
+                    <g key={t}>
+                      <line x1={sPadL} x2={STOCK_W - sPadR} y1={sYFor(t)} y2={sYFor(t)} stroke="var(--fc-grid)" strokeWidth={1} />
+                      <text x={sPadL - 8} y={sYFor(t) + 4} textAnchor="end" className="fc-chart-text">{unitFormatter.format(t)}</text>
+                    </g>
+                  ))}
+                  {stockBars.map((b, i) => {
+                    const top = sYFor(b.low);
+                    const base = sYFor(0);
+                    const h = base - top;
+                    const r = Math.min(4, h);
+                    const x0 = sXFor(i) - stockBarW / 2;
+                    const x1 = x0 + stockBarW;
+                    if (h <= 0) return null;
+                    return (
+                      <path
+                        key={b.monthIso}
+                        d={`M${x0},${base} V${top + r} Q${x0},${top} ${x0 + r},${top} H${x1 - r} Q${x1},${top} ${x1},${top + r} V${base} Z`}
+                        fill={b.monthIso === crossingMonth ? "var(--fc-ink)" : "var(--fc-bar)"}
+                      />
+                    );
+                  })}
+                  <line x1={sPadL} x2={STOCK_W - sPadR} y1={sYFor(0)} y2={sYFor(0)} stroke="#c9cad0" strokeWidth={1} />
+                  <line x1={sPadL} x2={STOCK_W - sPadR} y1={sYFor(plannerCalc.safetyStock)} y2={sYFor(plannerCalc.safetyStock)} stroke="var(--fc-bad)" strokeWidth={1.5} />
+                  <text x={STOCK_W - sPadR} y={sYFor(plannerCalc.safetyStock) - 6} textAnchor="end" className="fc-chart-text" style={{ fill: "var(--fc-ink-2)" }}>
+                    Safety stock {unitFormatter.format(plannerCalc.safetyStock)}
+                  </text>
+                  {stockBars.map((b, i) => (
+                    <text key={b.monthIso} x={sXFor(i)} y={STOCK_H - sPadB + 20} textAnchor="middle" className="fc-chart-text">{monthName(b.monthIso)}</text>
+                  ))}
+                </svg>
+              </ChartHover>
+            </div>
+            {orderBy.crossesSafetyStockDate ? (
+              <AssumptionNote bad={orderBy.alreadyLate}>
+                {orderBy.alreadyLate ? "Already late - " : ""}Order by <strong>{orderBy.orderByDate}</strong> to land before stock reaches the safety-stock level (around {orderBy.crossesSafetyStockDate}).
+              </AssumptionNote>
+            ) : (
+              <p className="fc-card-sub">Not projected to reach the safety-stock level within this horizon.</p>
+            )}
+          </section>
+        </div>
+
+        {/* PO planner - collapsed by default; stays open while a what-if is being simulated */}
+        <details className="fc-card fc-details" style={{ marginTop: "0.875rem" }} open={whatIfQty != null}>
+          <summary>
+            <span>
+              <span className="fc-card-title">PO planner</span>
+              <span className="fc-card-sub" style={{ display: "block" }}>
+                How the suggested {unitFormatter.format(plannerCalc.suggestedPoQty)} units for {primaryStyle.name} is worked out, a what-if, and the colour × size split to export.
+              </span>
+            </span>
+          </summary>
+          <div className="fc-details-body">
+            {!primaryLeadTimeProductId && (
+              <AssumptionNote>
+                Not linked to a lead-time product - open PO qty can&apos;t be computed. Link it on <Link href="/forecast/lead-times" className="underline">Lead times</Link>.
+              </AssumptionNote>
+            )}
+            {plannerCalc.alreadyLate && (
+              <AssumptionNote bad>Already late: projected stock would go negative before a PO placed today could arrive.</AssumptionNote>
+            )}
+
+            <dl className="fc-steps" style={{ marginTop: "1rem" }}>
+              {plannerCalc.steps.map((s) => (
+                <div key={s.label}>
+                  <div className="flex justify-between gap-4">
+                    <dt style={{ color: "var(--fc-ink-2)" }}>{s.label}</dt>
+                    <dd className="font-medium tabular-nums">{unitFormatter.format(s.value)}</dd>
+                  </div>
+                  <div className="fc-card-sub" style={{ marginTop: "0.15rem" }}>{s.formula}</div>
+                </div>
+              ))}
+            </dl>
+
+            <h3 className="fc-h3">What if I order X?</h3>
+            <form className="mt-2 flex items-end gap-2" method="get">
+              <HiddenParams params={params} except={["whatIfQty"]} />
+              <input type="number" name="whatIfQty" min={0} defaultValue={params.whatIfQty ?? ""} placeholder="Qty" aria-label="Order quantity" className="fc-control fc-control-light w-28" />
+              <button type="submit" className="fc-btn fc-btn-light">Simulate</button>
+            </form>
+            {whatIf && (
+              <p className="mt-2 text-sm" style={{ color: "var(--fc-ink-2)" }}>
+                Stock on landing: <strong>{unitFormatter.format(whatIf.stockAfterLanding)}</strong>.{" "}
+                {whatIf.projectedStockoutDate ? <>Projected to run out around <strong>{whatIf.projectedStockoutDate}</strong>.</> : "Not projected to run out within a year at the current forecast rate."}{" "}
+                The Projected stock chart above includes this order.
+              </p>
+            )}
+
+            <h3 className="fc-h3">Suggested PO - colour × size</h3>
+            <p className="fc-card-sub">
+              Splits the product total ({unitFormatter.format(plannerCalc.suggestedPoQty)} units) by recent sales mix - colour over the last 3 months, size over the last 6. A blank cell means no recent sales to base a share on, not zero demand. Every qty and price is editable before exporting.
+            </p>
+            <form action="/api/forecast/export-po" method="post" className="mt-3">
+              <input type="hidden" name="styleName" value={primaryStyle.name} />
+              <div className="overflow-x-auto">
+                <table className="fc-table" style={{ minWidth: 520 }}>
+                  <thead>
+                    <tr>
+                      <th>Style</th>
+                      <th>Colour</th>
+                      <th>Size</th>
+                      <th style={{ textAlign: "right" }}>Qty</th>
+                      <th style={{ textAlign: "right" }}>CMT price (IDR)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {grid.map((cell, i) => (
+                      <tr key={i}>
+                        <td>
+                          <input type="hidden" name={`color_${i}`} value={cell.color ?? ""} />
+                          <input type="hidden" name={`size_${i}`} value={cell.size ?? ""} />
+                          {primaryStyle.name}
+                        </td>
+                        <td>{cell.color ?? "-"}</td>
+                        <td>{cell.size ?? "-"}</td>
+                        <td style={{ textAlign: "right" }}>
+                          <input type="number" name={`qty_${i}`} defaultValue={cell.suggestedQty != null ? Math.round(cell.suggestedQty) : ""} aria-label="Qty" className="fc-cell-input w-20" />
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          <input type="number" name={`cmt_${i}`} defaultValue={cell.cmtPriceIdr ?? ""} aria-label="CMT price" className="fc-cell-input w-28" />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <input type="hidden" name="rowCount" value={grid.length} />
+              <button type="submit" className="fc-btn fc-btn-solid mt-4">Export PO to CSV</button>
+            </form>
+          </div>
+        </details>
+      </div>
     </div>
   );
 }
