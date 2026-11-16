@@ -279,11 +279,21 @@ export async function runStockSync() {
       (locationRows ?? []).map((l) => [l.odoo_location_id, l.id]),
     );
 
-    const { data: productRows } = await supabase
-      .from("products")
-      .select("id, odoo_product_id");
+    // Paged: more products than the API's 1000-row page would otherwise
+    // leave every product past the first 1000 without stock.
+    const productRows: { id: number; odoo_product_id: number }[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data: page, error } = await supabase
+        .from("products")
+        .select("id, odoo_product_id")
+        .order("id")
+        .range(from, from + 999);
+      if (error) throw new Error(`Reading products failed: ${error.message}`);
+      productRows.push(...(page ?? []));
+      if (!page || page.length < 1000) break;
+    }
     const productIdByOdooId = new Map(
-      (productRows ?? []).map((p) => [p.odoo_product_id, p.id]),
+      productRows.map((p) => [p.odoo_product_id, p.id]),
     );
 
     const quants = await fetchStockQuants(odooLocations.map((l) => l.id));
@@ -309,32 +319,54 @@ export async function runStockSync() {
     }
 
     const syncedAt = new Date().toISOString();
-    await supabase.from("stock_levels").upsert(
-      Array.from(qtyByKey.values()).map((v) => ({
-        product_id: v.productId,
-        location_id: v.locationId,
-        qty_on_hand: v.qty,
-        synced_at: syncedAt,
-      })),
-      { onConflict: "product_id,location_id" },
-    );
+    const levels = Array.from(qtyByKey.values());
+    const CHUNK = 500;
+    for (let i = 0; i < levels.length; i += CHUNK) {
+      const { error } = await supabase.from("stock_levels").upsert(
+        levels.slice(i, i + CHUNK).map((v) => ({
+          product_id: v.productId,
+          location_id: v.locationId,
+          qty_on_hand: v.qty,
+          synced_at: syncedAt,
+        })),
+        { onConflict: "product_id,location_id" },
+      );
+      if (error) throw new Error(`Saving stock levels failed: ${error.message}`);
+    }
+
+    // A product+location Odoo no longer reports has no stock there now
+    // (Odoo drops the quant at zero) - zero it rather than leave the last
+    // synced qty standing.
+    // Skipped when Odoo returned nothing at all, which is far more likely a
+    // failed read than every location being empty.
+    if (levels.length) {
+      const { error } = await supabase
+        .from("stock_levels")
+        .update({ qty_on_hand: 0, synced_at: syncedAt })
+        .lt("synced_at", syncedAt)
+        .neq("qty_on_hand", 0);
+      if (error) throw new Error(`Clearing stale stock levels failed: ${error.message}`);
+    }
 
     // Also appends today's position to stock_level_history (migration
     // 0029) - stock_levels above is overwritten in place and was never
     // meant to answer "was this in stock on day X"; this is the one
     // place that history starts accumulating from. One row per
     // product+location+day: a second sync later the same day overwrites
-    // today's row rather than duplicating it.
+    // today's row rather than duplicating it. Not fatal if that table
+    // isn't there yet.
     const snapshotDate = syncedAt.slice(0, 10);
-    await supabase.from("stock_level_history").upsert(
-      Array.from(qtyByKey.values()).map((v) => ({
-        product_id: v.productId,
-        location_id: v.locationId,
-        qty_on_hand: v.qty,
-        snapshot_date: snapshotDate,
-      })),
-      { onConflict: "product_id,location_id,snapshot_date" },
-    );
+    for (let i = 0; i < levels.length; i += CHUNK) {
+      await supabase.from("stock_level_history").upsert(
+        levels.slice(i, i + CHUNK).map((v) => ({
+          product_id: v.productId,
+          location_id: v.locationId,
+          qty_on_hand: v.qty,
+          snapshot_date: snapshotDate,
+        })),
+        { onConflict: "product_id,location_id,snapshot_date" },
+      );
+    }
 
     await supabase
       .from("sync_runs")

@@ -109,6 +109,12 @@ function fitHolt(
 
 function addPeriods(dateStr: string, count: number, bucketDays: number): string {
   const d = new Date(`${dateStr}T00:00:00Z`);
+  // Monthly buckets step by calendar month: adding 30 or 31 days to the
+  // 1st drifts off the month start (1 Oct + 30 days is still October).
+  if (bucketDays >= 28 && bucketDays <= 31 && d.getUTCDate() === 1) {
+    d.setUTCMonth(d.getUTCMonth() + count);
+    return d.toISOString().slice(0, 10);
+  }
   d.setUTCDate(d.getUTCDate() + count * bucketDays);
   return d.toISOString().slice(0, 10);
 }

@@ -59,14 +59,26 @@ export interface StockLevelRow {
 /** Current on-hand stock, every product x tracked location. Empty (with `unavailable: true`) if migration 0023 hasn't been run yet. */
 export async function fetchStockLevels(
   supabase: SupabaseClient,
+  /** Only these products' rows; omit for every product. */
+  productIds?: number[],
 ): Promise<{ rows: StockLevelRow[]; unavailable: boolean }> {
-  const { data, error } = await supabase
-    .from("stock_levels")
-    .select(
-      "product_id, qty_on_hand, synced_at, stock_locations ( id, kind, store_id )",
-    );
-
-  if (error) return { rows: [], unavailable: true };
+  // Paged: one row per product x location, well past the API's 1000-row page.
+  const data: unknown[] = [];
+  for (let from = 0; ; from += 1000) {
+    let query = supabase
+      .from("stock_levels")
+      .select(
+        "product_id, qty_on_hand, synced_at, stock_locations ( id, kind, store_id )",
+      );
+    if (productIds) query = query.in("product_id", productIds);
+    const { data: page, error } = await query
+      .order("product_id")
+      .order("location_id")
+      .range(from, from + 999);
+    if (error) return { rows: [], unavailable: true };
+    data.push(...(page ?? []));
+    if (!page || page.length < 1000) break;
+  }
 
   type Row = {
     product_id: number;
@@ -75,7 +87,7 @@ export async function fetchStockLevels(
     stock_locations: { id: number; kind: "office" | "store"; store_id: number | null } | null;
   };
 
-  const rows = ((data ?? []) as unknown as Row[])
+  const rows = (data as Row[])
     .filter((r) => r.stock_locations)
     .map((r) => ({
       productId: r.product_id,
