@@ -1,26 +1,171 @@
 @import "tailwindcss";
+@import "../styles/asasi.css";
 
+/*
+ * ASASI has one theme: light, like studioasasi.com. Tailwind's `dark:`
+ * variant is re-pointed at an explicit `.dark` scope the app never sets, so
+ * the `dark:` utilities still written in older pages are inert instead of
+ * switching half the interface to black when the OS is in dark mode.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Brand tokens, taken from the live site's own theme (Shopify "Prestige"
+ * settings read off studioasasi.com): olive-green accent, charcoal text,
+ * off-white page, cream announcement bar, hairline grey borders, square
+ * corners, Instrument Sans. Copper and the deep red are from the brand
+ * guidelines' Colour page and are used sparingly as accents.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+  --as-green: #1c2b10;
+  --as-green-2: #243316;
+  --as-green-3: #304221;
+  --as-cream: #f5f0e2;
+  --as-ink: #1c1c1c;
+  --as-page: #efefef;
+  --as-surface: #ffffff;
+  --as-surface-2: #f7f7f5;
+  --as-line: #dedede;
+  --as-line-strong: #cfcfcf;
+  --as-muted: #6b6b6b;
+  --as-faint: #8c8c8c;
+  --as-copper: #b58156;
+  --as-red: #893131;
+  --as-good: #426030;
+  --as-good-bg: #e6eddd;
+  --as-warn: #8a5a1c;
+  --as-warn-bg: #f7ecd9;
+  --as-bad: #893131;
+  --as-bad-bg: #f3dfdc;
+
+  --as-sidebar-w: 15.5rem;
+  --as-rail-w: 4rem;
+  --as-topbar-h: 3.5rem;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-instrument), "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@theme {
+  --color-brand: #1c2b10;
+  --color-brand-2: #243316;
+  --color-brand-3: #304221;
+  --color-cream: #f5f0e2;
+  --color-ink: #1c1c1c;
+  --color-page: #efefef;
+  --color-surface: #ffffff;
+  --color-surface-2: #f7f7f5;
+  --color-line: #dedede;
+  --color-line-strong: #cfcfcf;
+  --color-muted: #6b6b6b;
+  --color-faint: #8c8c8c;
+  --color-copper: #b58156;
+
+  /*
+   * Older pages are written against Tailwind's stock scales. Re-pointing
+   * those scales at brand tones puts every existing screen on the brand
+   * palette at once, without touching each class.
+   */
+  --color-zinc-50: #f7f7f5;
+  --color-zinc-100: #efefef;
+  --color-zinc-200: #dedede;
+  --color-zinc-300: #cfcfcf;
+  --color-zinc-400: #8c8c8c;
+  --color-zinc-500: #6b6b6b;
+  --color-zinc-600: #4a4a4a;
+  --color-zinc-700: #333333;
+  --color-zinc-800: #262626;
+  --color-zinc-900: #1c1c1c;
+  --color-zinc-950: #111111;
+
+  /* warning -> copper */
+  --color-amber-50: #f9f1e3;
+  --color-amber-100: #f4e6cf;
+  --color-amber-200: #ead2a9;
+  --color-amber-300: #ddb983;
+  --color-amber-400: #c99a5c;
+  --color-amber-500: #b58156;
+  --color-amber-600: #99693d;
+  --color-amber-700: #7c532f;
+  --color-amber-800: #614124;
+  --color-amber-900: #49311b;
+  --color-amber-950: #2e1f11;
+
+  /* positive -> olive */
+  --color-emerald-50: #eef2e8;
+  --color-emerald-100: #e0e8d6;
+  --color-emerald-200: #c6d4b6;
+  --color-emerald-300: #a3b98d;
+  --color-emerald-400: #7a9663;
+  --color-emerald-500: #587942;
+  --color-emerald-600: #426030;
+  --color-emerald-700: #304221;
+  --color-emerald-800: #243316;
+  --color-emerald-900: #1c2b10;
+  --color-emerald-950: #121c0a;
+  --color-green-50: #eef2e8;
+  --color-green-100: #e0e8d6;
+  --color-green-200: #c6d4b6;
+  --color-green-300: #a3b98d;
+  --color-green-400: #7a9663;
+  --color-green-500: #587942;
+  --color-green-600: #426030;
+  --color-green-700: #304221;
+  --color-green-800: #243316;
+  --color-green-900: #1c2b10;
+
+  /* negative -> brand red */
+  --color-red-50: #f8ecea;
+  --color-red-100: #f1dad6;
+  --color-red-200: #e3b7b1;
+  --color-red-300: #d08c85;
+  --color-red-400: #b9635c;
+  --color-red-500: #a04640;
+  --color-red-600: #893131;
+  --color-red-700: #772220;
+  --color-red-800: #661813;
+  --color-red-900: #4d120e;
+  --color-red-950: #300b09;
+  --color-rose-50: #f8ecea;
+  --color-rose-100: #f1dad6;
+  --color-rose-600: #893131;
+  --color-rose-700: #772220;
+}
+
+@layer base {
+  html {
+    background: var(--as-page);
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    background: var(--as-page);
+    color: var(--as-ink);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.55;
+    font-feature-settings: "kern";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::selection {
+    background: var(--as-green);
+    color: #fff;
+  }
+  :focus-visible {
+    outline: 2px solid var(--as-green);
+    outline-offset: 2px;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
 }

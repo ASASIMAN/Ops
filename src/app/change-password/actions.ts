@@ -37,5 +37,5 @@ export async function changePasswordAction(formData: FormData) {
     .update({ must_change_password: false })
     .eq("id", user.id);
 
-  redirect("/hub");
+  redirect("/dashboard");
 }

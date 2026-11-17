@@ -1,0 +1,1052 @@
+/*
+ * ASASI design system: the application shell, the shared UI primitives
+ * (`as-*` classes) every new screen is built from, and a short "bridge"
+ * section that brings the older utility-styled screens onto the same look.
+ * Tokens live in globals.css.
+ */
+
+/* ---------------------------------------------------------------- shell */
+
+.as-app {
+  min-height: 100vh;
+  background: var(--as-page);
+  color: var(--as-ink);
+}
+
+.as-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: var(--as-sidebar-w);
+  background: var(--as-green);
+  color: rgb(255 255 255 / 0.72);
+  transition: width 0.16s ease, transform 0.2s ease;
+}
+.as-main-col {
+  min-width: 0;
+  margin-left: var(--as-sidebar-w);
+  transition: margin-left 0.16s ease;
+}
+html[data-sidebar="collapsed"] .as-sidebar {
+  width: var(--as-rail-w);
+}
+html[data-sidebar="collapsed"] .as-main-col {
+  margin-left: var(--as-rail-w);
+}
+
+.as-sidebar-head {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: var(--as-topbar-h);
+  padding: 0 1.25rem;
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+  color: #fff;
+}
+.as-sidebar-mark {
+  display: none;
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+}
+.as-nav {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.5rem 0 1.5rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.18) transparent;
+}
+.as-nav-group + .as-nav-group {
+  margin-top: 0.25rem;
+}
+.as-nav-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.7rem 1.25rem 0.35rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-align: left;
+  color: rgb(255 255 255 / 0.5);
+}
+.as-nav-group-head:hover,
+.as-nav-group[data-active="true"] > .as-nav-group-head {
+  color: #fff;
+}
+.as-nav-group-head svg {
+  flex: none;
+  width: 1.05rem;
+  height: 1.05rem;
+}
+.as-nav-chevron {
+  margin-left: auto;
+  width: 0.7rem !important;
+  height: 0.7rem !important;
+  opacity: 0.6;
+  transition: transform 0.15s ease;
+}
+/* Groups are open unless their id is listed in <html data-nav-closed>
+   (see sidebar.tsx) - one selector per section id in nav-config.ts. */
+.as-nav-chevron {
+  transform: rotate(90deg);
+}
+html[data-nav-closed~="overview"] .as-nav-group[data-group="overview"] .as-nav-chevron,
+html[data-nav-closed~="sales"] .as-nav-group[data-group="sales"] .as-nav-chevron,
+html[data-nav-closed~="inventory"] .as-nav-group[data-group="inventory"] .as-nav-chevron,
+html[data-nav-closed~="marketing"] .as-nav-group[data-group="marketing"] .as-nav-chevron,
+html[data-nav-closed~="customers"] .as-nav-group[data-group="customers"] .as-nav-chevron {
+  transform: none;
+}
+html[data-nav-closed~="overview"] .as-nav-group[data-group="overview"] .as-nav-items,
+html[data-nav-closed~="sales"] .as-nav-group[data-group="sales"] .as-nav-items,
+html[data-nav-closed~="inventory"] .as-nav-group[data-group="inventory"] .as-nav-items,
+html[data-nav-closed~="marketing"] .as-nav-group[data-group="marketing"] .as-nav-items,
+html[data-nav-closed~="customers"] .as-nav-group[data-group="customers"] .as-nav-items {
+  display: none;
+}
+.as-nav-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 1.25rem 0.3rem 3.05rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  color: rgb(255 255 255 / 0.72);
+}
+.as-nav-link:hover {
+  background: rgb(255 255 255 / 0.05);
+  color: #fff;
+}
+.as-nav-link[aria-current="page"] {
+  background: rgb(255 255 255 / 0.09);
+  color: #fff;
+  box-shadow: inset 2px 0 0 var(--as-cream);
+}
+/* A thin bar that only shows while a clicked link's route is still loading. */
+.as-nav-pending {
+  margin-left: auto;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--as-cream);
+  opacity: 0;
+}
+.as-nav-pending[data-pending="true"] {
+  opacity: 1;
+  animation: as-pulse 0.9s ease-in-out infinite;
+}
+.as-sidebar-foot {
+  flex: none;
+  padding: 0.6rem 1.25rem 0.9rem;
+  border-top: 1px solid rgb(255 255 255 / 0.1);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  color: rgb(255 255 255 / 0.45);
+}
+
+/* Collapsed rail: group icons only. */
+@media (min-width: 1024px) {
+  html[data-sidebar="collapsed"] .as-sidebar-head {
+    justify-content: center;
+    padding: 0;
+  }
+  html[data-sidebar="collapsed"] .as-sidebar-logo,
+  html[data-sidebar="collapsed"] .as-nav-items,
+  html[data-sidebar="collapsed"] .as-nav-group-label,
+  html[data-sidebar="collapsed"] .as-nav-chevron,
+  html[data-sidebar="collapsed"] .as-sidebar-foot {
+    display: none !important;
+  }
+  html[data-sidebar="collapsed"] .as-sidebar-mark {
+    display: block;
+  }
+  html[data-sidebar="collapsed"] .as-nav-group-head {
+    justify-content: center;
+    padding: 0.85rem 0;
+  }
+  html[data-sidebar="collapsed"] .as-nav-group[data-active="true"] > .as-nav-group-head {
+    background: rgb(255 255 255 / 0.09);
+    box-shadow: inset 2px 0 0 var(--as-cream);
+  }
+}
+
+.as-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: var(--as-topbar-h);
+  padding: 0 1.5rem;
+  background: var(--as-page);
+  border-bottom: 1px solid var(--as-line-strong);
+}
+.as-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--as-muted);
+  white-space: nowrap;
+}
+.as-crumbs a:hover {
+  color: var(--as-ink);
+}
+.as-crumbs [aria-current="page"] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--as-ink);
+}
+.as-crumb-sep {
+  color: var(--as-line-strong);
+}
+.as-iconbtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  color: var(--as-ink);
+}
+.as-iconbtn:hover {
+  background: rgb(0 0 0 / 0.06);
+}
+.as-iconbtn svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+.as-dot-count {
+  position: absolute;
+  top: 0.2rem;
+  right: 0.15rem;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--as-red);
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1rem;
+  text-align: center;
+}
+.as-search-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 17rem;
+  max-width: 34vw;
+  height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--as-line-strong);
+  background: var(--as-surface);
+  color: var(--as-faint);
+  font-size: 0.8125rem;
+  text-align: left;
+}
+.as-search-trigger:hover {
+  border-color: var(--as-ink);
+  color: var(--as-muted);
+}
+.as-search-trigger svg {
+  flex: none;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: var(--as-ink);
+}
+.as-kbd {
+  margin-left: auto;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--as-line-strong);
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  color: var(--as-muted);
+}
+.as-popover {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 50;
+  width: 22rem;
+  max-width: calc(100vw - 2rem);
+  border: 1px solid var(--as-line-strong);
+  background: var(--as-surface);
+  box-shadow: 0 5px 30px rgb(0 0 0 / 0.1);
+}
+.as-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--as-line);
+}
+.as-popover-item {
+  display: block;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--as-line);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+.as-popover-item:last-child {
+  border-bottom: 0;
+}
+a.as-popover-item:hover,
+button.as-popover-item:hover {
+  background: var(--as-surface-2);
+}
+.as-content {
+  --as-pad-x: 1.5rem;
+  --as-pad-top: 1.75rem;
+  --as-pad-bottom: 4rem;
+  width: 100%;
+  max-width: 100rem;
+  margin: 0 auto;
+  padding: var(--as-pad-top) var(--as-pad-x) var(--as-pad-bottom);
+}
+/* A child that should run edge to edge of the content column (a banner, a wide table). */
+.as-bleed {
+  margin-left: calc(-1 * var(--as-pad-x));
+  margin-right: calc(-1 * var(--as-pad-x));
+}
+@media (min-width: 1280px) {
+  .as-content {
+    --as-pad-x: 2.5rem;
+    --as-pad-top: 2rem;
+    --as-pad-bottom: 5rem;
+  }
+  .as-topbar {
+    padding: 0 2.5rem;
+  }
+}
+
+.as-scrim {
+  display: none;
+}
+@media (max-width: 1023px) {
+  .as-sidebar {
+    width: min(19rem, 86vw);
+    transform: translateX(-100%);
+  }
+  html[data-nav="open"] .as-sidebar {
+    transform: none;
+    box-shadow: 0 0 40px rgb(0 0 0 / 0.3);
+  }
+  html[data-nav="open"] .as-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    background: rgb(0 0 0 / 0.4);
+  }
+  .as-main-col,
+  html[data-sidebar="collapsed"] .as-main-col {
+    margin-left: 0;
+  }
+  .as-topbar {
+    padding: 0 0.75rem;
+  }
+  .as-content {
+    --as-pad-x: 1rem;
+    --as-pad-top: 1.25rem;
+  }
+  .as-search-trigger {
+    width: 2.25rem;
+    padding: 0;
+    justify-content: center;
+    border-color: transparent;
+    background: transparent;
+  }
+  .as-search-trigger span,
+  .as-search-trigger .as-kbd {
+    display: none;
+  }
+}
+@media print {
+  .as-sidebar,
+  .as-topbar,
+  .as-scrim {
+    display: none !important;
+  }
+  .as-main-col {
+    margin-left: 0 !important;
+  }
+  .as-content {
+    padding: 0;
+    max-width: none;
+  }
+}
+
+/* Command palette (global search) */
+.as-palette-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 1rem 1rem;
+  background: rgb(0 0 0 / 0.4);
+}
+.as-palette {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 40rem;
+  max-height: 70vh;
+  border: 1px solid var(--as-line-strong);
+  background: var(--as-surface);
+  box-shadow: 0 5px 30px rgb(0 0 0 / 0.18);
+}
+.as-palette-input {
+  flex: none;
+  width: 100%;
+  height: 3.25rem;
+  padding: 0 1.1rem;
+  border: 0;
+  border-bottom: 1px solid var(--as-line);
+  background: transparent;
+  font-size: 0.95rem;
+  outline: none;
+}
+.as-palette-list {
+  overflow-y: auto;
+  padding: 0.35rem 0;
+}
+.as-palette-group {
+  padding: 0.7rem 1.1rem 0.3rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--as-faint);
+}
+.as-palette-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.875rem;
+  text-align: left;
+}
+.as-palette-item[data-active="true"] {
+  background: var(--as-green);
+  color: #fff;
+}
+.as-palette-item small {
+  margin-left: auto;
+  flex: none;
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+/* ----------------------------------------------------------- primitives */
+
+@layer components {
+  .as-eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--as-muted);
+  }
+
+  .as-page-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .as-page-title {
+    font-size: 1.375rem;
+    font-weight: 400;
+    letter-spacing: 0.16em;
+    line-height: 1.25;
+    text-transform: uppercase;
+  }
+  .as-page-desc {
+    margin-top: 0.4rem;
+    max-width: 46rem;
+    font-size: 0.8125rem;
+    color: var(--as-muted);
+  }
+
+  .as-card {
+    border: 1px solid var(--as-line);
+    background: var(--as-surface);
+  }
+  .as-card-pad {
+    padding: 1.25rem;
+  }
+  .as-card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.25rem 1rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--as-line);
+  }
+  .as-card-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .as-card-note {
+    font-size: 0.75rem;
+    color: var(--as-muted);
+  }
+  .as-link {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--as-ink);
+    text-decoration: underline;
+    text-decoration-color: var(--as-line-strong);
+    text-underline-offset: 0.3em;
+  }
+  .as-link:hover {
+    text-decoration-color: var(--as-ink);
+  }
+
+  /* Stat tile: label, headline value, comparison line. */
+  .as-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 7.25rem;
+    padding: 1.1rem 1.25rem 1rem;
+    border: 1px solid var(--as-line);
+    background: var(--as-surface);
+  }
+  a.as-stat:hover {
+    border-color: var(--as-ink);
+  }
+  .as-stat-label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--as-muted);
+  }
+  .as-stat-value {
+    font-size: 1.75rem;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .as-stat-value[data-empty="true"] {
+    color: var(--as-faint);
+    font-size: 1rem;
+    letter-spacing: 0;
+    line-height: 1.9;
+  }
+  .as-stat-foot {
+    margin-top: auto;
+    font-size: 0.75rem;
+    color: var(--as-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .as-up {
+    color: var(--as-good);
+  }
+  .as-down {
+    color: var(--as-bad);
+  }
+
+  .as-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 2.25rem;
+    padding: 0 1.1rem;
+    border: 1px solid var(--as-green);
+    background: var(--as-green);
+    color: #fff;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .as-btn:hover {
+    background: var(--as-green-3);
+    border-color: var(--as-green-3);
+  }
+  .as-btn-secondary {
+    border-color: var(--as-ink);
+    background: transparent;
+    color: var(--as-ink);
+  }
+  .as-btn-secondary:hover {
+    background: var(--as-ink);
+    border-color: var(--as-ink);
+    color: #fff;
+  }
+  .as-btn-quiet {
+    border-color: var(--as-line-strong);
+    background: var(--as-surface);
+    color: var(--as-ink);
+  }
+  .as-btn-quiet:hover {
+    background: var(--as-surface);
+    border-color: var(--as-ink);
+  }
+  .as-btn:disabled,
+  .as-btn[aria-disabled="true"],
+  .as-btn[data-pending="true"] {
+    opacity: 0.55;
+    cursor: progress;
+  }
+  .as-btn-sm {
+    height: 1.9rem;
+    padding: 0 0.75rem;
+    font-size: 0.625rem;
+  }
+
+  .as-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--as-muted);
+  }
+  .as-input {
+    height: 2.25rem;
+    min-width: 0;
+    padding: 0 0.7rem;
+    border: 1px solid var(--as-line-strong);
+    border-radius: 0;
+    background: var(--as-surface);
+    color: var(--as-ink);
+    font-size: 0.8125rem;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  textarea.as-input {
+    height: auto;
+    padding: 0.55rem 0.7rem;
+    line-height: 1.5;
+  }
+  .as-input:hover {
+    border-color: var(--as-muted);
+  }
+  .as-input:focus-visible {
+    border-color: var(--as-ink);
+    outline: 1px solid var(--as-ink);
+    outline-offset: 0;
+  }
+
+  /* Segmented control (period picker, view switches). */
+  .as-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    border: 1px solid var(--as-line-strong);
+    background: var(--as-surface);
+  }
+  .as-seg > a,
+  .as-seg > button {
+    padding: 0.5rem 0.85rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--as-muted);
+    white-space: nowrap;
+  }
+  .as-seg > * + * {
+    border-left: 1px solid var(--as-line);
+  }
+  .as-seg > a:hover,
+  .as-seg > button:hover {
+    color: var(--as-ink);
+  }
+  .as-seg > [aria-current="true"],
+  .as-seg > [aria-pressed="true"] {
+    background: var(--as-green);
+    color: #fff;
+  }
+  .as-seg > [aria-current="true"]:hover,
+  .as-seg > [aria-pressed="true"]:hover {
+    color: #fff;
+  }
+
+  /* Underline tabs for a section's sub-pages. */
+  .as-tabs {
+    display: flex;
+    gap: 1.75rem;
+    overflow-x: auto;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--as-line-strong);
+    scrollbar-width: none;
+  }
+  .as-tabs > a {
+    flex: none;
+    padding: 0 0 0.7rem;
+    margin-bottom: -1px;
+    border-bottom: 1px solid transparent;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--as-muted);
+  }
+  .as-tabs > a:hover {
+    color: var(--as-ink);
+  }
+  .as-tabs > a[aria-current="page"] {
+    border-bottom-color: var(--as-ink);
+    color: var(--as-ink);
+  }
+
+  .as-table-wrap {
+    overflow-x: auto;
+  }
+  .as-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .as-table th {
+    padding: 0.65rem 1.25rem;
+    border-bottom: 1px solid var(--as-line-strong);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--as-muted);
+    white-space: nowrap;
+  }
+  .as-table td {
+    padding: 0.65rem 1.25rem;
+    border-bottom: 1px solid var(--as-line);
+    vertical-align: middle;
+  }
+  .as-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .as-table tbody tr:hover td {
+    background: var(--as-surface-2);
+  }
+  .as-table .as-num {
+    text-align: right;
+  }
+  .as-table a:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.25em;
+  }
+
+  .as-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--as-line-strong);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--as-muted);
+    white-space: nowrap;
+  }
+  .as-badge-good {
+    border-color: transparent;
+    background: var(--as-good-bg);
+    color: var(--as-good);
+  }
+  .as-badge-warn {
+    border-color: transparent;
+    background: var(--as-warn-bg);
+    color: var(--as-warn);
+  }
+  .as-badge-bad {
+    border-color: transparent;
+    background: var(--as-bad-bg);
+    color: var(--as-bad);
+  }
+  .as-badge-solid {
+    border-color: var(--as-green);
+    background: var(--as-green);
+    color: #fff;
+  }
+
+  /* "No data" is a first-class state here, never a zero or a guess. */
+  .as-empty {
+    padding: 2rem 1.25rem;
+    font-size: 0.8125rem;
+    color: var(--as-muted);
+    text-align: center;
+  }
+  .as-empty strong {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--as-ink);
+  }
+  .as-notice {
+    padding: 0.7rem 1rem;
+    border: 1px solid var(--as-line-strong);
+    border-left: 2px solid var(--as-copper);
+    background: var(--as-surface);
+    font-size: 0.8125rem;
+  }
+  .as-notice-bad {
+    border-left-color: var(--as-red);
+  }
+  .as-notice-good {
+    border-left-color: var(--as-good);
+  }
+
+  /* Horizontal share bar used in ranked lists. */
+  .as-bar {
+    height: 0.3rem;
+    background: var(--as-line);
+  }
+  .as-bar > span {
+    display: block;
+    height: 100%;
+    background: var(--as-green-3);
+  }
+
+  .as-skel {
+    background: linear-gradient(90deg, #e4e4e4 0%, #ececec 45%, #e4e4e4 90%);
+    background-size: 200% 100%;
+    animation: as-shimmer 1.4s linear infinite;
+  }
+
+  .as-chart-text {
+    font-size: 10px;
+    fill: var(--as-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .as-chart-tip {
+    position: absolute;
+    z-index: 5;
+    min-width: 9rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--as-ink);
+    background: var(--as-surface);
+    box-shadow: 0 5px 15px rgb(0 0 0 / 0.08);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+}
+
+@keyframes as-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@keyframes as-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .as-skel,
+  .as-nav-pending[data-pending="true"] {
+    animation: none;
+  }
+  .as-sidebar,
+  .as-main-col {
+    transition: none;
+  }
+}
+
+/* ---------------------------------------------------------------- bridge
+ * Screens written before the design system style themselves with raw
+ * utilities (rounded cards, dark-fill buttons, sentence-case headings).
+ * These rules are deliberately unlayered so they win over those utilities
+ * and put the older screens on the same brand rules: square corners,
+ * uppercase letter-spaced headings and table headers, olive primary fills.
+ * New code should use the `as-*` primitives above instead of leaning on this.
+ */
+
+.as-app :where(.rounded, .rounded-sm, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-3xl) {
+  border-radius: 0;
+}
+.as-content h1:not(.as-page-title) {
+  font-size: 1.375rem;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+.as-content h2:not([class*="as-"]) {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+.as-content h3:not([class*="as-"]) {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.as-content table {
+  font-variant-numeric: tabular-nums;
+}
+.as-content thead th {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--as-muted);
+}
+.as-content thead th button {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+/* Dark fills were the old primary-button / active-pill style. */
+.as-content :is(.bg-zinc-900, .bg-zinc-950, .bg-black) {
+  background-color: var(--as-green);
+  color: #fff;
+}
+.as-content :is(button, a, [type="submit"]):is(.bg-zinc-900, .bg-zinc-950, .bg-black) {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.as-content :is(button, a, [type="submit"]):is(.bg-zinc-900, .bg-zinc-950, .bg-black):hover {
+  background-color: var(--as-green-3);
+}
+/* Bordered boxes on the grey page read as cards: give them the card surface. */
+.as-content :where(div, section, article, form, a, li, details).border:where(.rounded, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl):not([class*="bg-"]) {
+  background-color: var(--as-surface);
+}
+.as-content :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]), select, textarea):not(.as-input, .as-palette-input, .fc-control) {
+  border-radius: 0;
+  background-color: var(--as-surface);
+}
+.as-content :is(input, select, textarea):focus-visible {
+  outline: 1px solid var(--as-ink);
+  outline-offset: 0;
+  border-color: var(--as-ink);
+}
+.as-content :is(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--as-green);
+}
+
+/* /operations was themed through its own --ops-* variables (the retired
+   beige brand.css). Point them at the shared tokens. */
+.as-app {
+  --ops-bg: var(--as-page);
+  --ops-ink: var(--as-ink);
+  --ops-rule: var(--as-ink);
+  --ops-positive: var(--as-good);
+  --ops-negative: var(--as-bad);
+  --ops-notice-bg: var(--as-warn-bg);
+  --ops-notice-border: var(--as-copper);
+  --ops-notice-ink: var(--as-warn);
+}
+
+/* /forecast is themed through --fc-* variables in its own dash.css. Same
+   treatment: keep its layout, swap its palette, type and corners for the
+   brand's. The band becomes the olive of the site header. */
+.as-app .fc-dash {
+  --fc-page: var(--as-page);
+  --fc-surface: var(--as-surface);
+  --fc-band: var(--as-green);
+  --fc-band-ink: #ffffff;
+  --fc-band-muted: rgb(255 255 255 / 0.62);
+  --fc-band-line: rgb(255 255 255 / 0.24);
+  --fc-ink: var(--as-ink);
+  --fc-ink-2: #4a4a4a;
+  --fc-muted: var(--as-muted);
+  --fc-line: var(--as-line);
+  --fc-grid: #e4e4e4;
+  --fc-wash: var(--as-surface-2);
+  --fc-bar: #d6d6d6;
+  --fc-s-primary: #304221;
+  --fc-s-compare: #b58156;
+  --fc-good: var(--as-good);
+  --fc-good-bg: var(--as-good-bg);
+  --fc-warn: var(--as-warn);
+  --fc-warn-bg: var(--as-warn-bg);
+  --fc-bad: var(--as-bad);
+  --fc-bad-bg: var(--as-bad-bg);
+  min-height: 0;
+  margin: calc(-1 * var(--as-pad-top)) calc(-1 * var(--as-pad-x)) 0;
+  background: transparent;
+  font-family: inherit;
+}
+.as-app .fc-dash :is(.fc-control, .fc-btn, .fc-card, .fc-tile-icon, .fc-note, .fc-tip, .fc-cell-input) {
+  border-radius: 0;
+}
+.as-app .fc-dash .fc-control {
+  background: rgb(255 255 255 / 0.06);
+}
+.as-app .fc-dash .fc-control option {
+  color: var(--as-ink);
+}
+
+/* Older pages each wrapped themselves in a centred, padded container sized
+   for the old full-width header. Inside the shell the content column already
+   provides the gutters: drop the duplicate padding, let dashboard-width pages
+   use the full column, and keep reading-width pages narrow but left-aligned. */
+.as-content > .mx-auto[class*="max-w-"] {
+  margin-left: 0;
+  margin-right: 0;
+  padding: 0;
+}
+.as-content > .mx-auto:is(.max-w-5xl, .max-w-6xl, .max-w-7xl) {
+  max-width: none;
+}
+
+/* dash.css restyles the old shared <header> to merge with its band; the
+   shell's top bar stays the same on every screen. */
+body:has(.fc-dash) .as-app header.as-topbar {
+  background: var(--as-page);
+  border-color: var(--as-line-strong);
+  color: var(--as-ink);
+}
+body:has(.fc-dash) .as-app header.as-topbar a:hover {
+  color: var(--as-ink);
+}
+body:has(.fc-dash) {
+  background-color: var(--as-page);
+}

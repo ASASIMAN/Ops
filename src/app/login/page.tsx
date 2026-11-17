@@ -16,7 +16,7 @@ export default async function LoginPage({
         </p>
 
         <form action={signInAction} className="mt-6 flex flex-col gap-3">
-          <input type="hidden" name="next" value={next || "/hub"} />
+          <input type="hidden" name="next" value={next || "/dashboard"} />
           <label className="flex flex-col gap-1 text-sm">
             Email
             <input
