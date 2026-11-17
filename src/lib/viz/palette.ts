@@ -94,3 +94,29 @@ export function paletteCss(
     `@media (prefers-color-scheme:dark){.${scopeClass}{${decls("dark")}}}`
   );
 }
+
+/**
+ * Chart series colours for the ASASI-themed screens (dashboard, sales,
+ * inventory), in fixed slot order: olive, copper, steel blue, rose.
+ * Olive is a livelier step of the brand green and copper is the guidelines'
+ * copper; all four were stepped until scripts/validate_palette.js passed
+ * every check on the white card surface (lightness band, chroma floor,
+ * colour-blind and normal-vision separation of neighbours, 3:1 contrast).
+ * The exact brand hexes do not pass - they are too dark and too grey to
+ * tell apart as chart marks - which is why these are not simply the logo
+ * colours.
+ *
+ * There is deliberately no red: red means "down / problem" in this app, so
+ * it is never a series. Four slots is the limit - a fifth series folds into
+ * a grey "Other" rather than getting an invented colour. One theme, so
+ * dark = light.
+ */
+export const ASASI_PALETTE: PaletteSlot[] = [
+  { light: "#3f6b2a", dark: "#3f6b2a" }, // olive
+  { light: "#b8743a", dark: "#b8743a" }, // copper
+  { light: "#2b7ba6", dark: "#2b7ba6" }, // steel blue
+  { light: "#a8456e", dark: "#a8456e" }, // rose
+];
+
+/** A context series (the comparison period): deliberately grey and dashed, never one of the identity colours. */
+export const CONTEXT_SERIES_COLOR = "#9a9a9a";

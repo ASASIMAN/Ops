@@ -481,6 +481,12 @@ button.as-popover-item:hover {
     line-height: 1.25;
     text-transform: uppercase;
   }
+  .as-subtitle {
+    font-size: 1rem;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
   .as-page-desc {
     margin-top: 0.4rem;
     max-width: 46rem;
@@ -537,6 +543,7 @@ button.as-popover-item:hover {
     padding: 1.1rem 1.25rem 1rem;
     border: 1px solid var(--as-line);
     background: var(--as-surface);
+    container-type: inline-size;
   }
   a.as-stat:hover {
     border-color: var(--as-ink);
@@ -552,8 +559,12 @@ button.as-popover-item:hover {
     text-transform: uppercase;
     color: var(--as-muted);
   }
+  /* The figure is sized to its tile: as large as fits on one line for the
+     number of characters it has (--chars, set by <Stat>), capped at the
+     display size. A long rupiah value on a phone-width tile shrinks instead
+     of being clipped or wrapping. */
   .as-stat-value {
-    font-size: 1.75rem;
+    font-size: clamp(0.95rem, calc(100cqi / (var(--chars, 8) * 0.6)), 1.75rem);
     font-weight: 400;
     letter-spacing: -0.01em;
     line-height: 1.1;
@@ -674,6 +685,15 @@ button.as-popover-item:hover {
     border: 1px solid var(--as-line-strong);
     background: var(--as-surface);
   }
+  @media (max-width: 639px) {
+    /* One scrollable row on a phone rather than a ragged three-line block. */
+    .as-seg {
+      flex-wrap: nowrap;
+      max-width: 100%;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+  }
   .as-seg > a,
   .as-seg > button {
     padding: 0.5rem 0.85rem;
@@ -762,6 +782,7 @@ button.as-popover-item:hover {
   }
   .as-table .as-num {
     text-align: right;
+    white-space: nowrap;
   }
   .as-table a:hover {
     text-decoration: underline;

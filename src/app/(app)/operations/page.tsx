@@ -6,7 +6,7 @@ import { SalesOverTimeChart } from "./sales-over-time-chart";
 import { SalesLinesTable, type SalesLineRow } from "./sales-lines-table";
 import { FilterFields, type ProductFamily } from "./filter-fields";
 import { SyncHistoryButton } from "./sync-history-button";
-import { buildStoreGroups } from "./store-groups";
+import { buildStoreGroups } from "@/lib/sales/store-groups";
 
 export const dynamic = "force-dynamic";
 // Applies to this route's Server Actions too (e.g. the "Sync now" button) -
