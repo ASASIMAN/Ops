@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { updatePostMortemAction } from "../actions";
 import { createTaskAction, updateTaskStatusAction } from "../../tasks/actions";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 
@@ -124,12 +125,9 @@ export default async function CampaignDetailPage({
             rows={4}
             className="rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-transparent"
           />
-          <button
-            type="submit"
-            className="self-start rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-          >
+          <SubmitButton className="self-start rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">
             Save
-          </button>
+          </SubmitButton>
         </form>
       </div>
 
@@ -152,12 +150,9 @@ export default async function CampaignDetailPage({
             name="dueDate"
             className="rounded border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-transparent"
           />
-          <button
-            type="submit"
-            className="rounded bg-zinc-900 px-3 py-1 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
-          >
+          <SubmitButton className="rounded bg-zinc-900 px-3 py-1 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900">
             Add
-          </button>
+          </SubmitButton>
         </form>
         <ul className="mt-3">
           {(taskRows ?? []).map((t) => (
@@ -172,14 +167,9 @@ export default async function CampaignDetailPage({
                 <form action={updateTaskStatusAction}>
                   <input type="hidden" name="id" value={t.id} />
                   <input type="hidden" name="returnTo" value={returnTo} />
-                  <button
-                    type="submit"
-                    name="status"
-                    value="done"
-                    className="rounded border border-zinc-300 px-2 py-0.5 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-                  >
+                  <SubmitButton name="status" value="done" className="rounded border border-zinc-300 px-2 py-0.5 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">
                     Done
-                  </button>
+                  </SubmitButton>
                 </form>
               )}
             </li>

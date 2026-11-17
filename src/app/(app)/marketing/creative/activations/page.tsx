@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createActivationAction, toggleChecklistItemAction } from "./actions";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 
@@ -99,12 +100,9 @@ export default async function ActivationsPage() {
             />
           </label>
           <div className="col-span-2">
-            <button
-              type="submit"
-              className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
-            >
+            <SubmitButton className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900">
               Create
-            </button>
+            </SubmitButton>
           </div>
         </form>
       </details>
@@ -128,12 +126,9 @@ export default async function ActivationsPage() {
                   <form action={toggleChecklistItemAction} className="flex items-center gap-2">
                     <input type="hidden" name="id" value={a.id} />
                     <input type="hidden" name="index" value={i} />
-                    <button
-                      type="submit"
-                      className={`text-sm ${item.done ? "text-zinc-400 line-through" : ""}`}
-                    >
+                    <SubmitButton className={`text-sm ${item.done ? "text-zinc-400 line-through" : ""}`}>
                       {item.done ? "☑" : "☐"} {item.label}
-                    </button>
+                    </SubmitButton>
                   </form>
                 </li>
               ))}

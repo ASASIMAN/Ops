@@ -389,6 +389,13 @@ button.as-popover-item:hover {
   }
 }
 
+/* Grid columns default to growing with their widest content, so a wide
+   table would stretch the whole page on a phone. Let grid cells shrink to
+   the column; the tables inside scroll within their card instead. */
+.as-content .grid > * {
+  min-width: 0;
+}
+
 /* Command palette (global search) */
 .as-palette-scrim {
   position: fixed;
@@ -473,6 +480,12 @@ button.as-popover-item:hover {
     justify-content: space-between;
     gap: 1rem 1.5rem;
     margin-bottom: 1.5rem;
+  }
+  /* Header children may hold a side-scrolling control (period tabs); they
+     must be allowed to shrink to the column instead of widening the page. */
+  .as-page-head > * {
+    min-width: 0;
+    max-width: 100%;
   }
   .as-page-title {
     font-size: 1.375rem;
@@ -774,6 +787,10 @@ button.as-popover-item:hover {
     border-bottom: 1px solid var(--as-line);
     vertical-align: middle;
   }
+  /* The name column must stay readable when the table scrolls sideways on a phone. */
+  .as-table td:first-child {
+    min-width: 9rem;
+  }
   .as-table tbody tr:last-child td {
     border-bottom: 0;
   }
@@ -1070,4 +1087,26 @@ body:has(.fc-dash) .as-app header.as-topbar a:hover {
 }
 body:has(.fc-dash) {
   background-color: var(--as-page);
+}
+
+/* Older screens use rounded "pill" chips for filters (months, task views,
+   reporting periods) and small status badges. Square them off to match the
+   brand's square buttons; filter chips also take the uppercase tracked label
+   of the site's buttons. Round marks that ARE the data - pie charts, legend
+   dots - carry a width class and are left alone. */
+.as-content :is(a, button, span).rounded-full:not([class*="w-"]) {
+  border-radius: 0;
+}
+.as-content :is(a, button).rounded-full.border:not([class*="w-"]) {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background-color: var(--as-surface);
+}
+.as-content :is(a, button).rounded-full.border:is(.bg-zinc-900, .bg-zinc-950, .bg-black):not([class*="w-"]) {
+  background-color: var(--as-green);
+  border-color: var(--as-green);
+  color: #fff;
 }

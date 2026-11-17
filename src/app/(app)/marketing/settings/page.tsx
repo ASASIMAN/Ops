@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { updateStoreAction, updateAppSettingAction } from "./actions";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 
@@ -70,9 +71,9 @@ export default async function SettingsPage() {
               Active
             </label>
             <div className="col-span-2 sm:col-span-4">
-              <button type="submit" className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">
+              <SubmitButton className="rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">
                 Save
-              </button>
+              </SubmitButton>
             </div>
           </form>
         ))}
@@ -100,12 +101,9 @@ export default async function SettingsPage() {
                 className="rounded border border-zinc-300 px-2 py-1.5 font-mono text-xs dark:border-zinc-700 dark:bg-transparent"
               />
             </label>
-            <button
-              type="submit"
-              className="mt-2 rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-            >
+            <SubmitButton className="mt-2 rounded border border-zinc-300 px-3 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">
               Save
-            </button>
+            </SubmitButton>
           </form>
         ))}
       </div>

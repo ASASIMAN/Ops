@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { importMetaAdsAction, syncGoogleNowAction } from "./actions";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 // Applies to this route's Server Actions too (the import form) - parsing
@@ -155,12 +156,9 @@ export default async function ImportPage({
         pull immediately after fixing a credential issue.
       </p>
       <form action={syncGoogleNowAction} className="mt-3">
-        <button
-          type="submit"
-          className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-        >
+        <SubmitButton className="rounded border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">
           Sync now (last 30 days)
-        </button>
+        </SubmitButton>
       </form>
       {googleError && (
         <p className="mt-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
@@ -189,12 +187,9 @@ export default async function ImportPage({
           />
         </label>
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <button
-          type="submit"
-          className="mt-1 self-start rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
-        >
+        <SubmitButton className="mt-1 self-start rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900">
           Import
-        </button>
+        </SubmitButton>
       </form>
 
       <div className="mt-4 rounded-lg border border-zinc-200 p-4 text-sm dark:border-zinc-800">

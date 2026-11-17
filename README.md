@@ -62,22 +62,55 @@ deployed environments.
 ### Project structure
 
 ```
-src/app/                routes (App Router)
-src/app/login/          sign in
-src/app/setup/          one-time admin account creation
-src/app/change-password/forced password change on first login
-src/app/hub/             post-login landing - two tiles, config-driven
-src/app/operations/     Sales Dashboard (Odoo POS data) - the "Operations" tile
-src/app/forecast/       Forecasting: restock alerts, revenue/demand forecasts, top & low sellers
-src/app/marketing/      Marketing Command Centre - the "Marketing" tile (stub for now)
-src/app/api/sync/       Odoo -> Supabase sync job
-src/components/shell/   shared chrome (header, sign-out) used by every gated route
-src/lib/supabase/       Supabase client helpers (browser, server, admin/service-role)
-src/lib/odoo/           Odoo external API client
-src/middleware.ts       session refresh + auth gate + forced-password-change redirect
-config/modules.json     hub tile definitions (add a tile here, not by editing the hub)
-supabase/migrations/    hand-run SQL migrations (see below)
+src/app/                    routes (App Router)
+src/app/login/              sign in
+src/app/setup/              one-time admin account creation
+src/app/change-password/    forced password change on first login
+src/app/(app)/              every signed-in screen, all inside one shared layout (the app shell)
+src/app/(app)/dashboard/    executive dashboard - where everyone lands after sign-in
+src/app/(app)/sales/        Sales & Retail: overview, stores (comparison + targets), products
+src/app/(app)/operations/   Sales explorer - line-level Odoo POS data, filters, manual sync
+src/app/(app)/inventory/    Stock by location and variant, on order, slow movers, suppliers
+src/app/(app)/forecast/     PO planner, restock alerts / forecasts, lead times
+src/app/(app)/marketing/    Marketing Command Centre
+src/app/(app)/membership/   Members, scan, partner venues, tent card
+src/app/(app)/hub/          old landing page - now just redirects to /dashboard
+src/app/api/sync/           Odoo -> Supabase sync job
+src/components/shell/       sidebar, top bar, breadcrumbs, search, notifications (nav-config.ts lists every screen)
+src/components/ui/          shared building blocks: stat tiles, cards, charts, period picker, skeletons
+src/styles/asasi.css        the ASASI design system (tokens live in src/app/globals.css)
+src/lib/biz/                data access + period logic for the dashboard, sales and inventory screens
+src/lib/supabase/           Supabase client helpers (browser, server, admin/service-role)
+src/lib/odoo/               Odoo external API client
+src/middleware.ts           session refresh + auth gate + forced-password-change redirect
+config/modules.json         which roles can see each section of the sidebar
+supabase/migrations/        hand-run SQL migrations (see below)
 ```
+
+### The app shell and design system
+
+Every signed-in screen sits in one layout, `src/app/(app)/layout.tsx`: a
+persistent sidebar (collapsible to an icon rail on desktop, a drawer on a
+phone), and a top bar with breadcrumbs, global search (Ctrl/Cmd+K or "/"),
+notifications and the account menu. Moving between sections only swaps the
+content area, and each route has a `loading.tsx` skeleton so a click
+responds immediately.
+
+To add a screen, add it to `src/components/shell/nav-config.ts` - the
+sidebar, breadcrumbs and the "go to" half of search all read from there.
+Which roles see a section still comes from `config/modules.json`.
+
+The look follows studioasasi.com: Instrument Sans, olive `#1C2B10`,
+charcoal text, off-white page, square corners, uppercase tracked labels.
+Build new screens from the `as-*` classes in `src/styles/asasi.css` and the
+components in `src/components/ui/`. Chart colours come from `ASASI_PALETTE`
+in `src/lib/viz/palette.ts` (validated for colour-blind readers and
+contrast). Missing data is shown as "No data" with the reason - never as a
+zero or an estimate.
+
+The dashboard, Sales and Inventory screens need
+`supabase/migrations/0040_business_rollups.sql`. Until it is run, the parts
+that depend on it say "Not set up yet"; everything else keeps working.
 
 ### First-time setup (auth)
 
@@ -87,19 +120,11 @@ supabase/migrations/    hand-run SQL migrations (see below)
 2. Set `SETUP_SECRET` in Vercel, redeploy.
 3. Visit `/setup`, enter the setup key + your email + a password. This
    creates the first (and only, via this page) admin account.
-4. Sign in at `/login`. You'll land on `/hub`.
+4. Sign in at `/login`. You'll land on `/dashboard`.
 
 New team members: an admin creates their `auth.users` row + a `profiles`
 row (role + `must_change_password = true`) directly in Supabase for now —
 there's no in-app "invite a teammate" flow yet.
-
-### The hub
-
-`/hub` reads `config/modules.json` and renders one tile per module the
-signed-in user's role can see. Roles: `admin` (sees everything), `ops`,
-`marketing`, `viewer`. To add a third tile later (Retail Ops, Inventory,
-etc.), add an entry to `modules.json` — the hub itself doesn't need
-changes.
 
 ## Sales Dashboard (Odoo POS)
 

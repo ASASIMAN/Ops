@@ -1,9 +1,11 @@
+import Form from "next/form";
 import Link from "next/link";
 import { getStaffUser } from "@/lib/membership/data";
 import { appleWalletConfigured } from "@/lib/membership/wallet-apple";
 import { googleWalletConfigured } from "@/lib/membership/wallet-google";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { lookupMemberAction, setMemberStatusAction } from "./actions";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 
@@ -49,12 +51,12 @@ export default async function MembershipPage({
 
       <form action={lookupMemberAction} className="mt-6 flex gap-2">
         <input name="code" placeholder="Member code (e.g. K7Q2-M9XA)" className="w-64 rounded border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-transparent" />
-        <button className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900">Open member</button>
+        <SubmitButton className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900">Open member</SubmitButton>
       </form>
 
-      <form className="mt-6">
+      <Form action="" className="mt-6">
         <input name="q" defaultValue={q} placeholder="Search name, email or code" className="w-full max-w-sm rounded border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-transparent" />
-      </form>
+      </Form>
 
       <div className="mt-4 overflow-x-auto">
         <table className="w-full text-left text-sm">
@@ -80,7 +82,7 @@ export default async function MembershipPage({
                   <form action={setMemberStatusAction}>
                     <input type="hidden" name="id" value={m.id} />
                     <input type="hidden" name="status" value={m.status === "active" ? "suspended" : "active"} />
-                    <button className="text-xs text-zinc-500 underline">{m.status === "active" ? "Suspend" : "Reactivate"}</button>
+                    <SubmitButton className="text-xs text-zinc-500 underline">{m.status === "active" ? "Suspend" : "Reactivate"}</SubmitButton>
                   </form>
                 </td>
               </tr>

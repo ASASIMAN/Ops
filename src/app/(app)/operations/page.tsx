@@ -1,3 +1,4 @@
+import Form from "next/form";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { syncNowAction } from "./actions";
 import { BALI_TZ, formatRupiahCompact } from "@/lib/creative-brief/format";
@@ -7,6 +8,7 @@ import { SalesLinesTable, type SalesLineRow } from "./sales-lines-table";
 import { FilterFields, type ProductFamily } from "./filter-fields";
 import { SyncHistoryButton } from "./sync-history-button";
 import { buildStoreGroups } from "@/lib/sales/store-groups";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 // Applies to this route's Server Actions too (e.g. the "Sync now" button) -
@@ -784,12 +786,9 @@ export default async function DashboardPage({
               className="w-16 rounded border border-zinc-300 px-2 py-1 text-sm"
             />
           </label>
-          <button
-            type="submit"
-            className="border border-[var(--ops-rule)] px-3 py-1 text-xs font-medium uppercase tracking-wider hover:bg-zinc-100"
-          >
+          <SubmitButton className="border border-[var(--ops-rule)] px-3 py-1 text-xs font-medium uppercase tracking-wider hover:bg-zinc-100">
             Sync now
-          </button>
+          </SubmitButton>
         </form>
       </div>
       <p className="mt-1.5 text-[11px] text-zinc-500">
@@ -806,8 +805,7 @@ export default async function DashboardPage({
         <SyncHistoryButton />
       </div>
 
-      <form
-        method="get"
+      <Form action=""
         className="mt-6 border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4"
       >
         <FilterFields
@@ -846,13 +844,10 @@ export default async function DashboardPage({
           </p>
         </fieldset>
 
-        <button
-          type="submit"
-          className="mt-4 bg-zinc-900 px-5 py-2 text-xs font-medium uppercase tracking-wider text-zinc-50 hover:opacity-90"
-        >
+        <SubmitButton className="mt-4 bg-zinc-900 px-5 py-2 text-xs font-medium uppercase tracking-wider text-zinc-50 hover:opacity-90">
           Apply filters
-        </button>
-      </form>
+        </SubmitButton>
+      </Form>
 
       <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div className="border border-zinc-200 border-t-2 border-t-[var(--ops-rule)] p-4">

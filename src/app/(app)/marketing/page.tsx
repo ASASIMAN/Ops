@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getInsights } from "@/lib/insights";
 import { forecast, type Period } from "@/lib/forecast/engine";
 import { linePath, bandPath, niceStep, type Point } from "@/lib/viz/chart-utils";
-import { paletteCss, paletteVar } from "@/lib/viz/palette";
+import { ASASI_PALETTE, paletteCss, paletteVar } from "@/lib/viz/palette";
 import { buildSeasonIndex, fetchArrivals, EVEN_SHARE_PCT } from "@/lib/tourism/seasonality";
 import { formatRupiahCompact } from "@/lib/creative-brief/format";
 
@@ -31,23 +31,6 @@ const MONTH_NAME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 function monthName(month1to12: number): string {
   return MONTH_NAME_FORMATTER.format(new Date(Date.UTC(2000, month1to12 - 1, 1)));
 }
-
-const modules = [
-  { href: "/marketing/creative-brief", label: "Creative Brief", status: "live" as const },
-  { href: "/marketing/paid-media", label: "Paid Media", status: "live" as const },
-  { href: "/marketing/attribution", label: "Attribution & Visitors", status: "live" as const },
-  { href: "/marketing/financials", label: "Financials", status: "live" as const },
-  { href: "/marketing/import", label: "Data Import", status: "live" as const },
-  { href: "/marketing/campaigns", label: "Campaign Tracker", status: "live" as const },
-  { href: "/marketing/tasks", label: "Tasks", status: "live" as const },
-  { href: "/marketing/creative", label: "Creative Planner", status: "live" as const },
-  { href: "/marketing/kols", label: "KOL CRM", status: "live" as const },
-  { href: "/marketing/organic-social", label: "Organic Social", status: "live" as const },
-  { href: "/marketing/insights", label: "Insights", status: "live" as const },
-  { href: "/marketing/settings", label: "Settings", status: "live" as const },
-  { href: null, label: "Web & Ecom", status: "soon" as const },
-  { href: null, label: "Retail & Local", status: "soon" as const },
-];
 
 interface MonthMetrics {
   date: string;
@@ -97,10 +80,12 @@ function Kpi({
   note?: string;
 }) {
   return (
-    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-      <div className="text-xs text-zinc-500">{label}</div>
-      <div className="mt-1 text-xl font-semibold">{value}</div>
-      <div className="mt-1 flex gap-2 text-xs text-zinc-500">
+    <div className="as-stat">
+      <div className="as-stat-label">{label}</div>
+      <div className="as-stat-value" style={{ "--chars": value.length } as React.CSSProperties}>
+        {value}
+      </div>
+      <div className="as-stat-foot flex flex-wrap gap-x-2">
         {mom && <span>MoM {mom}</span>}
         {yoy && <span>YoY {yoy}</span>}
         {!mom && !yoy && note && <span>{note}</span>}
@@ -119,8 +104,8 @@ function AdPulseTile({
   bestAdMonthLabel: string | null;
 }) {
   return (
-    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-      <div className="text-xs text-zinc-500">Ads pulse</div>
+    <div className="as-stat">
+      <div className="as-stat-label">Ads pulse</div>
       <div className="mt-2 space-y-2.5">
         <div>
           <div className="text-[11px] text-zinc-500">Last ad (all time)</div>
@@ -507,26 +492,6 @@ export default async function MarketingOverviewPage({
         </Link>
       </div>
 
-      <nav className="mt-4 flex flex-wrap gap-2">
-        {modules.map((m) =>
-          m.href ? (
-            <Link
-              key={m.label}
-              href={m.href}
-              className="rounded-full border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400"
-            >
-              {m.label}
-            </Link>
-          ) : (
-            <span
-              key={m.label}
-              className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-400 dark:bg-zinc-900"
-            >
-              {m.label} (soon)
-            </span>
-          ),
-        )}
-      </nav>
 
       {!selected ? (
         <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">
@@ -553,7 +518,7 @@ export default async function MarketingOverviewPage({
               ))}
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
             <Kpi
               label="Total spend"
               value={fmtIdr(selected.metrics.total_spend_idr)}
@@ -936,7 +901,7 @@ export default async function MarketingOverviewPage({
             .sort((a, b) => a.month - b.month);
 
           const SEASON_SCOPE = "mk-season-chart";
-          const seasonChartCss = paletteCss(SEASON_SCOPE, ["spend", "sales", "offline", "season"]);
+          const seasonChartCss = paletteCss(SEASON_SCOPE, ["spend", "sales", "offline", "season"], "c-", ASASI_PALETTE);
 
           return (
             <div className={`mt-8 ${SEASON_SCOPE}`}>

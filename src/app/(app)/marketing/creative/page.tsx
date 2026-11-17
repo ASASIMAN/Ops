@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createPostAction, updatePostStatusAction } from "./actions";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +19,8 @@ const STATUSES = [
 const FORMATS = ["Video", "Single Image", "Carousel"] as const;
 
 interface MetricoolPerformance {
-  impressions?: number;
-  interactions?: number;
+  impressions?: number | null;
+  interactions?: number | null;
   reach?: number;
   likes?: number;
   saved?: number;
@@ -176,12 +177,9 @@ export default async function CreativePlannerPage() {
             />
           </label>
           <div className="col-span-2 sm:col-span-4">
-            <button
-              type="submit"
-              className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
-            >
+            <SubmitButton className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900">
               Add post
-            </button>
+            </SubmitButton>
           </div>
         </form>
       </details>
@@ -221,10 +219,15 @@ export default async function CreativePlannerPage() {
                   )}
                   {p.metricool_performance && (
                     <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-500">
-                      {p.metricool_performance.impressions !== undefined &&
-                        `${p.metricool_performance.impressions.toLocaleString()} impr.`}
-                      {p.metricool_performance.interactions !== undefined &&
-                        ` · ${p.metricool_performance.interactions.toLocaleString()} interactions`}
+                      {/* Metricool exports leave some fields empty (backfilled posts have null interactions). */}
+                      {[
+                        p.metricool_performance.impressions != null &&
+                          `${p.metricool_performance.impressions.toLocaleString()} impr.`,
+                        p.metricool_performance.interactions != null &&
+                          `${p.metricool_performance.interactions.toLocaleString()} interactions`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </p>
                   )}
                   <form action={updatePostStatusAction} className="mt-2 flex gap-1">
@@ -240,12 +243,9 @@ export default async function CreativePlannerPage() {
                         </option>
                       ))}
                     </select>
-                    <button
-                      type="submit"
-                      className="rounded border border-zinc-300 px-1.5 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-                    >
+                    <SubmitButton className="rounded border border-zinc-300 px-1.5 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">
                       Save
-                    </button>
+                    </SubmitButton>
                   </form>
                 </div>
               ))}

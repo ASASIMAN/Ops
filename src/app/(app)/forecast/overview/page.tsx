@@ -1,3 +1,4 @@
+import Form from "next/form";
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { syncStockNowAction } from "./actions";
@@ -26,6 +27,7 @@ import {
   hasForecastSchema,
 } from "@/lib/forecast/data";
 import { totalSeries, groupSeries, type DemandRow } from "@/lib/forecast/aggregate";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 // Same reasoning as /operations: several sequential Supabase calls (and,
@@ -595,12 +597,9 @@ export default async function ForecastPage({
           </Link>
           <form action={syncStockNowAction}>
             <input type="hidden" name="returnTo" value={returnTo} />
-            <button
-              type="submit"
-              className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium hover:border-zinc-500 dark:border-zinc-700 dark:hover:border-zinc-500"
-            >
+            <SubmitButton className="rounded border border-zinc-300 px-3 py-1.5 text-xs font-medium hover:border-zinc-500 dark:border-zinc-700 dark:hover:border-zinc-500">
               Sync stock now
-            </button>
+            </SubmitButton>
           </form>
         </div>
       </div>
@@ -611,7 +610,7 @@ export default async function ForecastPage({
         Last stock sync: {lastStockSync ? `${lastStockSync.status} (${new Date(lastStockSync.started_at).toLocaleString()})` : "never"}
       </p>
 
-      <form className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-zinc-200 p-4 text-xs dark:border-zinc-800" method="get">
+      <Form action="" className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-zinc-200 p-4 text-xs dark:border-zinc-800">
         <label className="flex flex-col gap-1">
           Store (§2-3)
           <select name="store" defaultValue={params.store ?? "all"} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
@@ -641,10 +640,10 @@ export default async function ForecastPage({
           Sellers to (§4)
           <input type="date" name="to" defaultValue={to} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
         </label>
-        <button type="submit" className="rounded bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-200 dark:text-zinc-900">
+        <SubmitButton className="rounded bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-200 dark:text-zinc-900">
           Apply
-        </button>
-      </form>
+        </SubmitButton>
+      </Form>
 
       {/* ------------------------------------------------------------- */}
       {/* §1 Restock timing & quantity                                   */}

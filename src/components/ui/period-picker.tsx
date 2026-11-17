@@ -1,3 +1,4 @@
+import Form from "next/form";
 import Link from "next/link";
 import { PERIOD_OPTIONS, type Period } from "@/lib/biz/period";
 
@@ -36,7 +37,7 @@ export function PeriodPicker({
         ))}
       </nav>
       {period.key === "custom" && (
-        <form action={basePath} className="flex flex-wrap items-end gap-2">
+        <Form action={basePath} className="flex flex-wrap items-end gap-2">
           <input type="hidden" name="period" value="custom" />
           {kept.map(([k, v]) => (
             <input key={k} type="hidden" name={k} value={v} />
@@ -52,7 +53,7 @@ export function PeriodPicker({
           <button type="submit" className="as-btn">
             Apply
           </button>
-        </form>
+        </Form>
       )}
     </div>
   );

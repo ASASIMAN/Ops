@@ -279,7 +279,7 @@ export default async function StoresPage({
             </div>
             {canEditTargets ? (
               <div className="flex items-center gap-4 border-t border-line px-5 py-3">
-                <SubmitButton>Save targets</SubmitButton>
+                <SubmitButton pendingLabel="Saving…">Save targets</SubmitButton>
                 <span className="text-xs text-muted">Rupiah, whole month. Leave a field blank for no target.</span>
               </div>
             ) : (

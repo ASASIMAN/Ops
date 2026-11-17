@@ -19,6 +19,7 @@ import {
   resolveAllProducts,
 } from "@/lib/leadtime/data";
 import { computeMeasuredLeadTime, resolveEtaForPo } from "@/lib/leadtime/resolve";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -153,9 +154,9 @@ export default async function LeadTimesPage({
           <div className="flex flex-col gap-1 text-zinc-500">
             Clock start: <span className="font-medium text-zinc-700 dark:text-zinc-300">PO date</span> (only option implemented so far)
           </div>
-          <button type="submit" className="self-start rounded bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-200 dark:text-zinc-900 sm:col-span-3">
+          <SubmitButton className="self-start rounded bg-zinc-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-200 dark:text-zinc-900 sm:col-span-3">
             Save assumptions
-          </button>
+          </SubmitButton>
         </form>
       </section>
 
@@ -181,9 +182,9 @@ export default async function LeadTimesPage({
             Vendor estimates CSV
             <input type="file" name="file" accept=".csv" required className="rounded border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700" />
           </label>
-          <button type="submit" className="self-start rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900">
+          <SubmitButton className="self-start rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900">
             Import
-          </button>
+          </SubmitButton>
         </form>
       </section>
 
@@ -247,9 +248,9 @@ export default async function LeadTimesPage({
                     ))}
                   </select>
                 </label>
-                <button type="submit" className="rounded border border-zinc-300 px-2 py-1 hover:border-zinc-500 dark:border-zinc-700">
+                <SubmitButton className="rounded border border-zinc-300 px-2 py-1 hover:border-zinc-500 dark:border-zinc-700">
                   Confirm
-                </button>
+                </SubmitButton>
               </form>
             ))}
           </div>
@@ -342,9 +343,9 @@ export default async function LeadTimesPage({
             Note (optional)
             <input name="note" className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
           </label>
-          <button type="submit" className="rounded bg-zinc-800 px-3 py-1.5 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-200 dark:text-zinc-900">
+          <SubmitButton className="rounded bg-zinc-800 px-3 py-1.5 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-200 dark:text-zinc-900">
             Save
-          </button>
+          </SubmitButton>
         </form>
       </section>
 
@@ -389,9 +390,9 @@ export default async function LeadTimesPage({
                         <input type="hidden" name="poId" value={po.id} />
                         <input type="date" name="manualEtaDate" defaultValue={po.manualEtaDate ?? ""} className="rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-xs dark:border-zinc-700" />
                         <input type="text" name="manualEtaNote" placeholder="note" defaultValue={po.manualEtaNote ?? ""} className="w-28 rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-xs dark:border-zinc-700" />
-                        <button type="submit" className="rounded border border-zinc-300 px-1.5 py-0.5 hover:border-zinc-500 dark:border-zinc-700">
+                        <SubmitButton className="rounded border border-zinc-300 px-1.5 py-0.5 hover:border-zinc-500 dark:border-zinc-700">
                           Save
-                        </button>
+                        </SubmitButton>
                       </form>
                     </td>
                   </tr>

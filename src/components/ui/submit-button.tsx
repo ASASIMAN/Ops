@@ -3,23 +3,31 @@
 import { useFormStatus } from "react-dom";
 
 /**
- * Submit button for a server-action form: disables itself and shows what it
- * is doing while the action runs, so a slow save can't be double-submitted
- * and never looks like a dead button.
+ * Submit button for a server-action form: disabled while the action runs so
+ * a slow save can't be sent twice, and visibly busy so it never looks like a
+ * dead button. Keeps its own label unless `pendingLabel` is given. Any other
+ * button attribute (name/value, formAction, ...) passes straight through.
  */
 export function SubmitButton({
   children,
-  pendingLabel = "Saving…",
+  pendingLabel,
   className = "as-btn",
-}: {
-  children: React.ReactNode;
-  pendingLabel?: string;
-  className?: string;
+  disabled,
+  ...rest
+}: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
+  pendingLabel?: React.ReactNode;
 }) {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" className={className} disabled={pending} data-pending={pending}>
-      {pending ? pendingLabel : children}
+    <button
+      {...rest}
+      type="submit"
+      className={className}
+      disabled={disabled || pending}
+      aria-busy={pending || undefined}
+      data-pending={pending || undefined}
+    >
+      {pending && pendingLabel ? pendingLabel : children}
     </button>
   );
 }

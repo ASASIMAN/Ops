@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createTaskAction, updateTaskStatusAction } from "./actions";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 
@@ -108,23 +109,13 @@ export default async function TasksPage({
           <input type="hidden" name="id" value={t.id} />
           <input type="hidden" name="returnTo" value={`/marketing/tasks?view=${view}`} />
           {t.status !== "in_progress" && (
-            <button
-              type="submit"
-              name="status"
-              value="in_progress"
-              className="rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-            >
+            <SubmitButton name="status" value="in_progress" className="rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">
               In progress
-            </button>
+            </SubmitButton>
           )}
-          <button
-            type="submit"
-            name="status"
-            value="done"
-            className="rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-          >
+          <SubmitButton name="status" value="done" className="rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">
             Done
-          </button>
+          </SubmitButton>
         </form>
       </li>
     );
@@ -198,12 +189,9 @@ export default async function TasksPage({
           Assign to me
         </label>
         <div className="col-span-2 sm:col-span-4">
-          <button
-            type="submit"
-            className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
-          >
+          <SubmitButton className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900">
             Add task
-          </button>
+          </SubmitButton>
         </div>
       </form>
 

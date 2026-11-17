@@ -1,3 +1,4 @@
+import Form from "next/form";
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { forecast, type Period, type ForecastResult } from "@/lib/forecast/engine";
@@ -38,6 +39,7 @@ import { niceStep, smoothPath, smoothBandPath, type Point } from "@/lib/viz/char
 import { ChartHover, type HoverSlot } from "./chart-hover";
 import { syncStockNowAction } from "./overview/actions";
 import "./dash.css";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -633,7 +635,7 @@ export default async function ForecastChartPage({
             </div>
           </div>
 
-          <form className="mt-6 flex flex-wrap items-end gap-3" method="get">
+          <Form action="" className="mt-6 flex flex-wrap items-end gap-3">
             <datalist id="style-options">
               {styleOptions.map((s) => <option key={s.templateId} value={s.name} />)}
             </datalist>
@@ -685,10 +687,10 @@ export default async function ForecastChartPage({
               <input type="checkbox" name="adjustStockouts" defaultChecked={adjustStockouts} /> Adjust for stockouts
             </label>
             <HiddenParams params={params} except={["product", "compareProduct", "color", "size", "store", "past", "next", "adjustStockouts"]} />
-            <button type="submit" className="fc-btn" style={{ background: "#fff", color: "#17181c", borderColor: "#fff" }}>
+            <SubmitButton className="fc-btn" style={{ background: "#fff", color: "#17181c", borderColor: "#fff" }}>
               Apply
-            </button>
-          </form>
+            </SubmitButton>
+          </Form>
         </div>
       </div>
 
@@ -769,7 +771,7 @@ export default async function ForecastChartPage({
         </div>
         <form action={syncStockNowAction} className="mt-3 flex flex-wrap items-center gap-3">
           <input type="hidden" name="returnTo" value={returnTo} />
-          <button type="submit" className="fc-btn fc-btn-light" style={{ background: "#fff" }}>Sync stock from Odoo</button>
+          <SubmitButton className="fc-btn fc-btn-light" style={{ background: "#fff" }}>Sync stock from Odoo</SubmitButton>
           <span className="fc-card-sub" style={{ marginTop: 0 }}>
             {lastStockSync
               ? `Last stock sync: ${lastStockSync.status}, ${stockSyncFormatter.format(new Date(lastStockSync.started_at))} (Bali time).`
@@ -1090,11 +1092,11 @@ export default async function ForecastChartPage({
             </dl>
 
             <h3 className="fc-h3">What if I order X?</h3>
-            <form className="mt-2 flex items-end gap-2" method="get">
+            <Form action="" className="mt-2 flex items-end gap-2">
               <HiddenParams params={params} except={["whatIfQty"]} />
               <input type="number" name="whatIfQty" min={0} defaultValue={params.whatIfQty ?? ""} placeholder="Qty" aria-label="Order quantity" className="fc-control fc-control-light w-28" />
-              <button type="submit" className="fc-btn fc-btn-light">Simulate</button>
-            </form>
+              <SubmitButton className="fc-btn fc-btn-light">Simulate</SubmitButton>
+            </Form>
             {whatIf && (
               <p className="mt-2 text-sm" style={{ color: "var(--fc-ink-2)" }}>
                 Stock on landing: <strong>{unitFormatter.format(whatIf.stockAfterLanding)}</strong>.{" "}
@@ -1142,7 +1144,7 @@ export default async function ForecastChartPage({
                 </table>
               </div>
               <input type="hidden" name="rowCount" value={grid.length} />
-              <button type="submit" className="fc-btn fc-btn-solid mt-4">Export PO to CSV</button>
+              <SubmitButton className="fc-btn fc-btn-solid mt-4">Export PO to CSV</SubmitButton>
             </form>
           </div>
         </details>

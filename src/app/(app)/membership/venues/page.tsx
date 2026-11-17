@@ -1,6 +1,7 @@
 import { getStaffUser } from "@/lib/membership/data";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createVenueAction, deleteVenueAction, updateVenueAction } from "../actions";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export default async function VenuesPage() {
         <input name="discountText" placeholder="Offer, e.g. 10% off the bill" required className={input} />
         <input name="notes" placeholder="Internal notes (optional)" className={input} />
         <input name="sortOrder" type="number" placeholder="Order" className={input} />
-        <button className="rounded bg-zinc-900 px-3 py-1.5 text-sm text-white sm:col-span-2 dark:bg-zinc-50 dark:text-zinc-900">Add venue</button>
+        <SubmitButton className="rounded bg-zinc-900 px-3 py-1.5 text-sm text-white sm:col-span-2 dark:bg-zinc-50 dark:text-zinc-900">Add venue</SubmitButton>
       </form>
 
       <div className="mt-6 space-y-3">
@@ -38,11 +39,11 @@ export default async function VenuesPage() {
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" name="active" defaultChecked={v.active} /> Active
               </label>
-              <button className="justify-self-end rounded border border-zinc-300 px-3 py-1 text-sm dark:border-zinc-700">Save</button>
+              <SubmitButton className="justify-self-end rounded border border-zinc-300 px-3 py-1 text-sm dark:border-zinc-700">Save</SubmitButton>
             </form>
             <form action={deleteVenueAction} className="mt-1">
               <input type="hidden" name="id" value={v.id} />
-              <button className="text-xs text-red-600 underline">Delete</button>
+              <SubmitButton className="text-xs text-red-600 underline">Delete</SubmitButton>
             </form>
           </div>
         ))}

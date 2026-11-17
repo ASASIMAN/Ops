@@ -9,6 +9,7 @@ import {
   type Confidence,
 } from "@/lib/creative-brief/parse";
 import { formatBaliDateTime, formatRupiahCompact, baliMonthFormatter } from "@/lib/creative-brief/format";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -426,12 +427,9 @@ export default async function CreativeBriefPage({
               ad-links.csv (ad_name,permalink — optional)
               <input type="file" name="adLinksCsv" accept=".csv" className="text-xs" />
             </label>
-            <button
-              type="submit"
-              className="mt-1 self-start rounded bg-[#16342A] px-4 py-1.5 text-sm text-white dark:bg-[#4C8768] dark:text-[#0d1712]"
-            >
+            <SubmitButton className="mt-1 self-start rounded bg-[#16342A] px-4 py-1.5 text-sm text-white dark:bg-[#4C8768] dark:text-[#0d1712]">
               Save month
-            </button>
+            </SubmitButton>
             <p className={`text-xs ${MUTED}`}>
               Re-uploading a month updates it - any file left blank keeps what&apos;s already saved for
               that month.

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createKolAction, updateKolStatusAction } from "./actions";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 
@@ -185,9 +186,9 @@ export default async function KolsPage() {
             <input type="url" name="contentLink" className="rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-transparent" />
           </label>
           <div className="col-span-2 sm:col-span-4">
-            <button type="submit" className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900">
+            <SubmitButton className="rounded bg-zinc-900 px-4 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900">
               Add KOL
-            </button>
+            </SubmitButton>
           </div>
         </form>
       </details>
@@ -220,9 +221,9 @@ export default async function KolsPage() {
                         <option key={s} value={s}>{s}</option>
                       ))}
                     </select>
-                    <button type="submit" className="rounded border border-zinc-300 px-1.5 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">
+                    <SubmitButton className="rounded border border-zinc-300 px-1.5 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">
                       Save
-                    </button>
+                    </SubmitButton>
                   </form>
                 </div>
               ))}

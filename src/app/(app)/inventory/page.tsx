@@ -1,3 +1,4 @@
+import Form from "next/form";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -194,7 +195,7 @@ export default async function InventoryPage({
             title="Stock by variant"
             note={`${num(totalRows)} variant${totalRows === 1 ? "" : "s"}${q ? ` matching “${q}”` : ""} · sold = units sold in the last 30 days`}
           >
-            <form action="/inventory" className="flex flex-wrap items-end gap-3 border-b border-line px-5 py-4">
+            <Form action="/inventory" className="flex flex-wrap items-end gap-3 border-b border-line px-5 py-4">
               <label className="as-field min-w-[14rem] flex-1">
                 Search
                 <input name="q" defaultValue={q} placeholder="Product, SKU or colour" className="as-input" />
@@ -232,7 +233,7 @@ export default async function InventoryPage({
                   Clear
                 </Link>
               )}
-            </form>
+            </Form>
 
             {!stock.ok ? (
               <p className="as-notice as-notice-bad m-5">Stock couldn&apos;t be loaded: {stock.error}</p>
