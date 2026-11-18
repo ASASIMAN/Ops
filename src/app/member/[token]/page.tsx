@@ -16,7 +16,6 @@ export async function generateMetadata({
     title: "My ASASI Membership",
     robots: { index: false },
     manifest: `/member/${token}/manifest.webmanifest`,
-    icons: { apple: "/brand/apple-touch-icon.png" },
     appleWebApp: { capable: true, title: "ASASI", statusBarStyle: "black" },
   };
 }

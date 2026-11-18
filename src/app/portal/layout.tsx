@@ -5,7 +5,6 @@ export const metadata: Metadata = {
   description: "Your ASASI member card, points and partner perks.",
   robots: { index: false },
   manifest: "/portal/manifest.webmanifest",
-  icons: { apple: "/brand/apple-touch-icon.png" },
   appleWebApp: { capable: true, title: "ASASI", statusBarStyle: "black-translucent" },
 };
 
