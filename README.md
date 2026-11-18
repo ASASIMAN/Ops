@@ -886,7 +886,8 @@ there is nothing separate to build or host.
 Setup:
 
 1. Apply `supabase/migrations/0042_member_portal.sql`, then
-   `0043_member_email_lookup.sql` and `0044_partner_logos.sql` (adds SOMA).
+   `0043_member_email_lookup.sql`, `0044_partner_logos.sql` (adds SOMA) and
+   `0045_point_value.sql` (1 Greyhound point = Rp 1).
 2. Vercel -> project -> Settings -> Domains: add `members.studioasasi.com`,
    then add the CNAME record Vercel shows at the studioasasi.com DNS host.
 3. Website nav: link to `https://members.studioasasi.com`.

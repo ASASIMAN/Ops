@@ -1,6 +1,5 @@
 import { InstallHint } from "@/app/member/[token]/install-hint";
 import { PartnerList } from "@/components/portal/partner-list";
-import { idr } from "@/lib/biz/format";
 import { POINTS_NAME, getActiveVenues, getPointValueIdr, shortName, type Member } from "@/lib/membership/data";
 import { fetchOdooPoints, formatPoints } from "@/lib/membership/directory";
 import { qrSvg } from "@/lib/membership/qr";
@@ -12,6 +11,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 const DATE = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Makassar" });
 const TIME = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Makassar" });
+
+/** "Rp 871,500" - grouped the same way as the points figure above it. */
+const rupiah = (value: number) => `Rp ${Math.round(value).toLocaleString("en-US")}`;
 
 function freshness(syncedAt: string | null): string {
   if (!syncedAt) return "";
@@ -87,7 +89,7 @@ export async function MemberHome({ member, signOut }: { member: Member; signOut?
         <p className="mt-2 text-5xl font-light tabular-nums">{formatPoints(points)}</p>
         {pointValue && points > 0 && (
           <p className="mt-2 text-[0.9375rem]">
-            Worth <span className="tabular-nums">{idr(points * pointValue)}</span>
+            Equivalent to <span className="tabular-nums">{rupiah(points * pointValue)}</span>
           </p>
         )}
         <p className="mt-2 text-xs text-muted">
