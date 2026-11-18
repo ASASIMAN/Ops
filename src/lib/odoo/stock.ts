@@ -1,4 +1,4 @@
-import { searchRead } from "./rpc";
+import { executeKw, searchRead } from "./rpc";
 
 // NOTE: field names below match standard Odoo Inventory (v16/17) - same
 // caveat as sales.ts: verify against the live instance once connected.
@@ -47,6 +47,8 @@ export interface OdooStockQuant {
   product_id: [number, string];
   location_id: [number, string];
   quantity: number;
+  /** When this stock arrived at the location (Odoo 12+); false/absent when unknown. */
+  in_date?: string | false;
 }
 
 /**
@@ -58,9 +60,34 @@ export async function fetchStockQuants(
   locationIds: number[],
 ): Promise<OdooStockQuant[]> {
   if (!locationIds.length) return [];
+  // in_date (when the stock arrived) feeds the budget planner's "old stock"
+  // flag. Read only when this Odoo has it, so an older version still syncs.
+  const available = await executeKw<Record<string, unknown>>("stock.quant", "fields_get", [["in_date"]], {
+    attributes: ["type"],
+  }).catch(() => ({}) as Record<string, unknown>);
   return searchRead<OdooStockQuant>(
     "stock.quant",
     [["location_id", "in", locationIds]],
-    ["id", "product_id", "location_id", "quantity"],
+    ["id", "product_id", "location_id", "quantity", ...("in_date" in available ? ["in_date"] : [])],
   );
+}
+
+/**
+ * Each variant's cost price (product.product.standard_price), keyed by
+ * Odoo product id. null when it can't be read (the API user may lack
+ * access to costs) - the caller carries on without costs rather than
+ * failing the sync.
+ */
+export async function fetchProductCosts(): Promise<Map<number, number> | null> {
+  try {
+    const rows = await searchRead<{ id: number; standard_price: number }>(
+      "product.product",
+      [],
+      ["id", "standard_price"],
+    );
+    return new Map(rows.map((r) => [r.id, Number(r.standard_price) || 0]));
+  } catch (error) {
+    console.error("[stock sync] product costs not readable:", error instanceof Error ? error.message : error);
+    return null;
+  }
 }

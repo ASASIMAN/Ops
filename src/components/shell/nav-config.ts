@@ -10,7 +10,7 @@ import modules from "@config/modules.json";
  */
 
 export type Role = "admin" | "marketing" | "ops" | "viewer";
-export type IconName = "overview" | "sales" | "inventory" | "marketing" | "customers";
+export type IconName = "overview" | "sales" | "inventory" | "marketing" | "planning" | "customers";
 
 export interface NavItem {
   href: string;
@@ -79,6 +79,15 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/marketing/tasks", label: "Tasks", keywords: "to do owner due" },
       { href: "/marketing/import", label: "Data import", keywords: "csv upload meta ads" },
       { href: "/marketing/settings", label: "Settings", keywords: "assumptions taxonomy" },
+    ],
+  },
+  {
+    id: "planning",
+    label: "Planning",
+    icon: "planning",
+    module: "budget_planner",
+    items: [
+      { href: "/planning/budget", label: "Marketing budget", keywords: "budget planner pushes stock pile deadstock forecast ceo approve" },
     ],
   },
   {

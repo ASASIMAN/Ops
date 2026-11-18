@@ -47,6 +47,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(toMembersSite(request));
   }
 
+  // The scheduled syncs (vercel.json crons) arrive with the CRON_SECRET
+  // bearer token, not a signed-in session - the routes check that secret
+  // themselves, so the login redirect below must not catch them.
+  if (request.nextUrl.pathname.startsWith("/api/sync/")) return NextResponse.next();
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

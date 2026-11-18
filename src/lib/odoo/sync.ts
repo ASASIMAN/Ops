@@ -8,6 +8,7 @@ import {
 } from "./sales";
 import {
   fetchStockLocations,
+  fetchProductCosts,
   fetchStockQuants,
   TRACKED_STOCK_LOCATIONS,
 } from "./stock";
@@ -375,6 +376,12 @@ export async function runStockSync() {
       );
     }
 
+    // Budget planner (migration 0046): how long stock has been sitting,
+    // and each product's cost price. Neither is fatal - the migration may
+    // not be run yet, or Odoo may not expose them to this API user.
+    const lotAgesSynced = await saveStockLotAges(supabase, quants, productIdByOdooId, locationIdByOdooId, syncedAt);
+    const costsUpdated = await saveProductCosts(supabase);
+
     await supabase
       .from("sync_runs")
       .update({
@@ -384,7 +391,7 @@ export async function runStockSync() {
       })
       .eq("id", run!.id);
 
-    return { locationsSynced: odooLocations.length, quantsSynced: qtyByKey.size };
+    return { locationsSynced: odooLocations.length, quantsSynced: qtyByKey.size, lotAgesSynced, costsUpdated };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     await supabase
@@ -398,6 +405,62 @@ export async function runStockSync() {
 
     throw error;
   }
+}
+
+/**
+ * Stock by arrival day (stock.quant in_date) for the budget planner's
+ * "old stock" flag, replacing what was there. Returns rows saved; 0 when
+ * Odoo has no arrival dates or migration 0046 isn't run.
+ */
+async function saveStockLotAges(
+  supabase: ReturnType<typeof createAdminClient>,
+  quants: Awaited<ReturnType<typeof fetchStockQuants>>,
+  productIdByOdooId: Map<number, number>,
+  locationIdByOdooId: Map<number, number>,
+  syncedAt: string,
+): Promise<number> {
+  const byKey = new Map<string, { product_id: number; location_id: number; received_on: string; qty: number }>();
+  for (const q of quants) {
+    if (!q.in_date || !(q.quantity > 0)) continue;
+    const productId = productIdByOdooId.get(q.product_id[0]);
+    const locationId = locationIdByOdooId.get(q.location_id[0]);
+    if (!productId || !locationId) continue;
+    const receivedOn = String(q.in_date).slice(0, 10);
+    const key = `${productId}:${locationId}:${receivedOn}`;
+    const row = byKey.get(key);
+    if (row) row.qty += q.quantity;
+    else byKey.set(key, { product_id: productId, location_id: locationId, received_on: receivedOn, qty: q.quantity });
+  }
+  if (!byKey.size) return 0;
+  const rows = [...byKey.values()].map((r) => ({ ...r, synced_at: syncedAt }));
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await supabase
+      .from("stock_lot_ages")
+      .upsert(rows.slice(i, i + 500), { onConflict: "product_id,location_id,received_on" });
+    if (error) {
+      console.error("[stock sync] stock ages not saved (run migration 0046?):", error.message);
+      return 0;
+    }
+  }
+  await supabase.from("stock_lot_ages").delete().lt("synced_at", syncedAt);
+  return rows.length;
+}
+
+/** Cost prices onto products. Returns how many changed; 0 when unreadable or migration 0046 isn't run. */
+async function saveProductCosts(supabase: ReturnType<typeof createAdminClient>): Promise<number> {
+  const probe = await supabase.from("products").select("cost_price").limit(1);
+  if (probe.error) return 0;
+  const costs = await fetchProductCosts();
+  if (!costs?.size) return 0;
+  const { data, error } = await supabase.rpc("set_product_costs", {
+    // Odoo reports 0 for "no cost entered" - that's unknown, not free.
+    p_costs: [...costs].map(([id, cost]) => ({ id, cost: cost > 0 ? cost : null })),
+  });
+  if (error) {
+    console.error("[stock sync] product costs not saved:", error.message);
+    return 0;
+  }
+  return Number(data) || 0;
 }
 
 /**

@@ -3,7 +3,7 @@ import type { IconName } from "./nav-config";
 /**
  * The app's whole icon set: thin single-weight line drawings, in the spirit
  * of the three header icons on studioasasi.com. Kept deliberately small -
- * the interface is typographic, icons only mark the five sections and the
+ * the interface is typographic, icons only mark the six sections and the
  * top-bar controls.
  */
 const common = {
@@ -45,6 +45,13 @@ export function NavIcon({ name }: { name: IconName }) {
       return (
         <svg {...common}>
           <path d="M4 19.5h16M7 16v-5M12 16V6M17 16v-8" />
+        </svg>
+      );
+    case "planning":
+      return (
+        <svg {...common}>
+          <rect x="3.5" y="5" width="17" height="15" />
+          <path d="M3.5 9.5h17M8 3v4M16 3v4M8 14h3M8 17h6" />
         </svg>
       );
     case "customers":

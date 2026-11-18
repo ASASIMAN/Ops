@@ -74,6 +74,7 @@ src/app/(app)/inventory/    Stock by location and variant, on order, slow movers
 src/app/(app)/forecast/     PO planner, restock alerts / forecasts, lead times
 src/app/(app)/marketing/    Marketing Command Centre
 src/app/(app)/membership/   Members, scan, partner venues, tent card
+src/app/(app)/planning/     Marketing budget planner (pushes to shift stock; propose -> confirm -> approve)
 src/app/portal/             members portal - email in, card + QR + points out (served at the root of members.studioasasi.com)
 src/app/join/, member/, v/  public member sign-up, card link, partner QR check
 src/app/(app)/hub/          old landing page - now just redirects to /dashboard
@@ -84,7 +85,7 @@ src/styles/asasi.css        the ASASI design system (tokens live in src/app/glob
 src/lib/biz/                data access + period logic for the dashboard, sales and inventory screens
 src/lib/supabase/           Supabase client helpers (browser, server, admin/service-role)
 src/lib/odoo/               Odoo external API client
-src/middleware.ts           session refresh + auth gate + forced-password-change redirect + members-address routing
+src/middleware.ts           session refresh + auth gate (scheduled /api/sync/* calls use CRON_SECRET instead) + forced-password-change redirect + members-address routing
 config/modules.json         which roles can see each section of the sidebar
 supabase/migrations/        hand-run SQL migrations (see below)
 ```
@@ -768,6 +769,51 @@ defaulted; each is called out where it's used in code and in the UI:
 - **MAPE in §5 is noisy by design** on this little data (one-step-ahead
   backtest, in-sample residual bands) - treat forecast bands and
   accuracy numbers as indicative, not precise intervals.
+
+## Marketing budget planner (/planning/budget)
+
+Extra marketing money to shift large or old piles of the core items -
+Affine, Kavash (not the Crop), Linen Pants and Origin - and when in the year
+to ask for it. Open to admin, marketing, ops and viewers (sidebar:
+Planning -> Marketing budget). The maths is in `src/lib/budget/model.ts`
+(pure functions), the data in `src/lib/budget/data.ts`, the items and their
+name matching in `src/lib/budget/items.ts` - the page lists exactly which
+Odoo styles each item picked up.
+
+Per item, per month, 12 months ahead:
+
+- **Season** - how busy the month is vs an average month, from Bali tourist
+  arrivals (`bali_tourist_arrivals`), until we have two years of our own sales.
+- **Normal month** - average of (units sold / season) over the last 6
+  complete months. Expected sales = normal x season x PO-planner uplifts.
+- **Months of stock** = stock / normal month, rolled forward with open POs
+  arriving (lead-time system) and expected + extra sales.
+- **Target** = supplier lead time (Lead times page) + 1 month, or an admin
+  override; stock above it is the **large pile**. **Old stock** = units that
+  arrived more than 180 days ago (Odoo `stock.quant.in_date`; adjustable).
+- **Cost of an Instagram store sale** = Meta ad spend / Instagram walk-ins
+  (Visitors sheet - the same count Financials reports as in-store sales from
+  ads), last 12 reported months. All Meta spend is counted, so it errs high.
+- **Extra units from a push** = spend / that cost x units of the item per
+  store sale (its units / all POS orders, last 6 months; the proposer can
+  raise it when the ads feature the item). **Profit** = extra units x
+  (price - cost) - spend; price = last 3 months' average, cost = Odoo cost.
+- **Ask by** = the first month a pile appears minus the request lead time
+  (1 month by default).
+
+Workflow: marketing or admin **proposes** a push (item, month, Rp, why) and
+sees the estimate as they type; ops (or admin) **confirms** the stock; the
+**CEO approves or rejects** (a reason is required to reject). The approver
+is any account an admin ticks under Settings on the page
+(`profiles.can_approve_budget`). Every step and note is kept in
+`marketing_push_events`; the prediction is saved with the push and compared
+with what sold once the month is over.
+
+Setup: apply `supabase/migrations/0046_budget_planner.sql`, then run a stock
+sync ("Sync stock now" on Forecast overview, or wait for the morning cron) -
+it now also brings in stock arrival dates and cost prices
+(`stock_lot_ages`, `products.cost_price`). Neither is fatal: if Odoo doesn't
+expose them to the API user, the page says "No data" rather than guessing.
 
 ## How to update this each month
 

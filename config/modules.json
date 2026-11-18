@@ -46,5 +46,18 @@
       "marketing"
     ],
     "status": "live"
+  },
+  {
+    "id": "budget_planner",
+    "title": "Marketing budget planner",
+    "description": "Extra marketing money to shift large or old stock of the core items, and when to ask for it. Marketing proposes, ops confirms the stock, the CEO approves.",
+    "route": "/planning/budget",
+    "roles": [
+      "admin",
+      "marketing",
+      "ops",
+      "viewer"
+    ],
+    "status": "live"
   }
 ]
