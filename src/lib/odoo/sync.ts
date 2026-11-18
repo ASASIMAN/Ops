@@ -66,6 +66,52 @@ function storeNameKey(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+interface StoreRow {
+  id: number;
+  odoo_pos_config_id: number | null;
+  name: string;
+  active: boolean;
+  slug: string | null;
+  is_preopening: boolean;
+  merged_into_store_id: number | null;
+}
+
+/**
+ * Every store row. `merged_into_store_id` comes with migration 0047; until
+ * that's run it reads as null and only the name rule below applies.
+ */
+async function fetchStoreRows(supabase: Supabase): Promise<{ rows: StoreRow[]; hasMergeColumn: boolean }> {
+  const page = (cols: string) => (a: number, b: number) =>
+    supabase.from("stores").select(cols).order("id").range(a, b) as unknown as PromiseLike<{
+      data: StoreRow[] | null;
+      error: { message: string } | null;
+    }>;
+  try {
+    const rows = await selectAllPages<StoreRow>(
+      page("id, odoo_pos_config_id, name, active, slug, is_preopening, merged_into_store_id"),
+    );
+    return { rows, hasMergeColumn: true };
+  } catch {
+    const rows = await selectAllPages<StoreRow>(page("id, odoo_pos_config_id, name, active, slug, is_preopening"));
+    return { rows: rows.map((r) => ({ ...r, merged_into_store_id: null })), hasMergeColumn: false };
+  }
+}
+
+/**
+ * The live store another POS config belongs to: the one live store (has a
+ * slug, not pre-opening) whose slug, without hyphens, appears in the
+ * config's name with case, spaces and punctuation ignored - so "ASASI
+ * Pererenan" and "ASASI. PERERENAN" both belong to `pererenan`. Same rule
+ * as migration 0047. Null when none or more than one match.
+ */
+function mergeTarget(name: string, rows: StoreRow[]): number | null {
+  const key = storeNameKey(name);
+  const matches = rows.filter(
+    (r) => r.slug && r.active && !r.is_preopening && key.includes(r.slug.replace(/-/g, "")),
+  );
+  return matches.length === 1 ? matches[0].id : null;
+}
+
 /**
  * Syncs orders in [dateFrom, dateTo). The catalogue (stores, categories,
  * products) is refreshed too unless `refreshCatalog` is false - a multi-chunk
@@ -87,22 +133,9 @@ export async function runOdooSyncRange(
   try {
     if (refreshCatalog) {
       const stores = await fetchStores();
-      const existing = await selectAllPages<{
-        odoo_pos_config_id: number | null;
-        name: string;
-        active: boolean;
-      }>((a, b) =>
-        supabase
-          .from("stores")
-          .select("odoo_pos_config_id, name, active")
-          .order("id")
-          .range(a, b),
-      );
+      const { rows: existing, hasMergeColumn } = await fetchStoreRows(supabase);
       const known = new Set(existing.map((r) => r.odoo_pos_config_id));
-      const activeNames = new Set(
-        existing.filter((r) => r.active).map((r) => storeNameKey(r.name)),
-      );
-      // Known configs: refresh the name only (active/slug are set in the app).
+      // Known configs: refresh the name only (active/slug/merge are set in the app).
       const { error: knownError } = await supabase.from("stores").upsert(
         stores
           .filter((s) => known.has(s.id))
@@ -110,19 +143,22 @@ export async function runOdooSyncRange(
         { onConflict: "odoo_pos_config_id" },
       );
       if (knownError) throw new Error(`Upsert into stores failed: ${knownError.message}`);
-      // New configs: one that is another POS config for a store already
-      // listed (same name - e.g. the old company's "ASASI Pererenan" next to
-      // "ASASI. PERERENAN") comes in inactive, so it adds no duplicate to
-      // the store filters; its orders are moved onto that store below. A
-      // config archived in Odoo comes in inactive too.
+      // New configs: one that belongs to a live store (another POS config
+      // for Pererenan, Canggu, Nusa Dua or Ubud - see mergeTarget) comes in
+      // inactive and merged into it, so it adds no duplicate to the store
+      // filters. A config archived in Odoo comes in inactive too.
       const fresh = stores.filter((s) => !known.has(s.id));
       if (fresh.length) {
         const { error } = await supabase.from("stores").insert(
-          fresh.map((s) => ({
-            odoo_pos_config_id: s.id,
-            name: s.name,
-            active: s.active && !activeNames.has(storeNameKey(s.name)),
-          })),
+          fresh.map((s) => {
+            const target = mergeTarget(s.name, existing);
+            return {
+              odoo_pos_config_id: s.id,
+              name: s.name,
+              active: s.active && target === null,
+              ...(hasMergeColumn ? { merged_into_store_id: target } : {}),
+            };
+          }),
         );
         if (error) throw new Error(`Insert into stores failed: ${error.message}`);
       }
@@ -138,38 +174,21 @@ export async function runOdooSyncRange(
       );
     }
 
-    const storeRows = await selectAllPages<{
-      id: number;
-      odoo_pos_config_id: number;
-      name: string;
-      active: boolean;
-      slug: string | null;
-    }>((a, b) =>
-      supabase
-        .from("stores")
-        .select("id, odoo_pos_config_id, name, active, slug")
-        .order("id")
-        .range(a, b),
-    );
+    const { rows: storeRows } = await fetchStoreRows(supabase);
     const categoryRows = await selectAllPages<{ id: number; odoo_id: number }>(
       (a, b) =>
         supabase.from("product_categories").select("id, odoo_id").range(a, b),
     );
 
-    // An inactive config without a slug whose name matches exactly one live
-    // store (ignoring case, spaces and punctuation) is an old or duplicate
-    // POS config for that store - its orders count toward the live store,
-    // so per-store views include sales from before the company change.
-    const liveStoreIdsByName = new Map<string, number[]>();
-    for (const s of storeRows) {
-      if (!s.active) continue;
-      const key = storeNameKey(s.name);
-      liveStoreIdsByName.set(key, [...(liveStoreIdsByName.get(key) ?? []), s.id]);
-    }
+    // Orders on another POS config of a store are stored against the live
+    // store: by the explicit merge (migration 0047), else - for a config
+    // that is inactive and has no slug - by the same name rule.
     const storeIdByOdooId = new Map(
       storeRows.map((s) => {
-        const live = liveStoreIdsByName.get(storeNameKey(s.name));
-        const target = !s.active && !s.slug && live?.length === 1 ? live[0] : s.id;
+        const target =
+          s.merged_into_store_id ??
+          (!s.active && !s.slug ? mergeTarget(s.name, storeRows) : null) ??
+          s.id;
         return [s.odoo_pos_config_id, target];
       }),
     );
