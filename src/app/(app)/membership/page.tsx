@@ -91,6 +91,19 @@ export default async function MembershipPage({
     return query ? `/membership?${query}` : "/membership";
   };
 
+  // When each member on this page last opened the members portal (migration 0042).
+  const memberIds = directory.ok ? directory.rows.map((r) => r.memberId).filter((id): id is string => Boolean(id)) : [];
+  const seen = new Map<string, string>();
+  const fromPortal = new Set<string>();
+  if (memberIds.length) {
+    const { data, error } = await admin.from("members").select("id, last_seen_at, signup_source").in("id", memberIds);
+    if (!error)
+      for (const m of data ?? []) {
+        if (m.last_seen_at) seen.set(m.id, m.last_seen_at);
+        if (m.signup_source === "portal") fromPortal.add(m.id);
+      }
+  }
+
   const s = summary.ok ? summary.data : null;
   const notSetUp = !directory.ok && directory.missing;
   const neverSynced = s !== null && s.odooCustomers === 0 && !syncs.lastSuccess;
@@ -238,8 +251,11 @@ export default async function MembershipPage({
                               )}
                               <span className="block text-xs text-muted">
                                 {r.memberCode
-                                  ? `QR sign-up${r.joinedAppAt ? `, ${DATE.format(new Date(r.joinedAppAt))}` : ""}${r.odooPartnerId === null ? " · not found in Odoo" : ""}`
+                                  ? `${r.memberId && fromPortal.has(r.memberId) ? "Card made at first sign-in" : "QR sign-up"}${r.joinedAppAt ? `, ${DATE.format(new Date(r.joinedAppAt))}` : ""}${r.odooPartnerId === null ? " · not found in Odoo" : ""}`
                                   : ""}
+                                {r.memberId && seen.has(r.memberId) && (
+                                  <span className="block">Last opened app {DATE.format(new Date(seen.get(r.memberId)!))}</span>
+                                )}
                               </span>
                             </td>
                             {/* No sale with this customer attached isn't the same as "never bought". */}

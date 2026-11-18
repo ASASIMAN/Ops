@@ -1,14 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { InstallHint } from "./install-hint";
-import { AsasiLogo } from "@/components/brand/asasi-logo";
-import { getActiveVenues, getMemberByToken } from "@/lib/membership/data";
-import { qrSvg } from "@/lib/membership/qr";
-import { getBaseUrl, verifyUrl } from "@/lib/membership/urls";
-import { appleWalletConfigured } from "@/lib/membership/wallet-apple";
-import { googleWalletConfigured } from "@/lib/membership/wallet-google";
-import { fetchOdooPoints, formatPoints } from "@/lib/membership/directory";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { PortalFrame } from "@/components/portal/frame";
+import { MemberHome } from "@/components/portal/member-home";
+import { portalPaths } from "@/lib/membership/portal";
+import { getMemberByToken } from "@/lib/membership/data";
 
 export const dynamic = "force-dynamic";
 export async function generateMetadata({
@@ -26,115 +21,18 @@ export async function generateMetadata({
   };
 }
 
+/** A member's card by its secret link (saved links, wallet passes) - the same page the members portal shows. */
 export default async function MemberCardPage({
   params,
 }: {
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const member = await getMemberByToken(token);
+  const [member, paths] = await Promise.all([getMemberByToken(token), portalPaths()]);
   if (!member) notFound();
-
-  const base = await getBaseUrl();
-  const [qr, venues, { data: history }, odoo] = await Promise.all([
-    qrSvg(verifyUrl(base, member.code), { margin: 0 }),
-    getActiveVenues(),
-    createAdminClient()
-      .from("member_transactions")
-      .select("id, kind, points, location, note, created_at")
-      .eq("member_id", member.id)
-      .order("created_at", { ascending: false })
-      .limit(10),
-    member.odoo_partner_id ? fetchOdooPoints(createAdminClient(), member.odoo_partner_id) : Promise.resolve(null),
-  ]);
-
-  const apple = appleWalletConfigured();
-  const google = googleWalletConfigured();
-
   return (
-    <div className="mx-auto w-full max-w-md px-5 py-8">
-      <div className="rounded-2xl bg-zinc-900 p-6 text-white shadow-xl">
-        <div className="flex items-center justify-between">
-          <AsasiLogo className="h-6 invert" />
-          <span className="text-xs uppercase tracking-widest text-zinc-400">Member</span>
-        </div>
-        <p className="mt-6 text-xl font-semibold">{member.full_name}</p>
-        <p className="font-mono text-sm tracking-widest text-zinc-400">{member.code}</p>
-        <div
-          className="mx-auto mt-6 w-48 rounded-xl bg-white p-3 [&_svg]:h-full [&_svg]:w-full"
-          dangerouslySetInnerHTML={{ __html: qr }}
-          role="img"
-          aria-label={`Membership QR code ${member.code}`}
-        />
-        <p className="mt-3 text-center text-xs text-zinc-400">
-          Show this at ASASI stores and partner venues
-        </p>
-        {member.status === "suspended" && (
-          <p className="mt-3 rounded bg-red-500/20 p-2 text-center text-sm text-red-200">
-            This membership is currently suspended.
-          </p>
-        )}
-      </div>
-
-      <div className="mt-4 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
-        <p className="text-sm text-zinc-500">Points balance</p>
-        <p className="text-4xl font-semibold tabular-nums">
-          {formatPoints((odoo?.points ?? 0) + member.points_balance)}
-        </p>
-        {member.odoo_partner_id && (
-          <p className="mt-1 text-sm text-zinc-500">Points from your purchases at ASASI stores are added at the till.</p>
-        )}
-      </div>
-
-      {(apple || google) && (
-        <div className="mt-4 flex flex-col gap-3">
-          {apple && (
-            <a href={`/member/${token}/apple`} className="rounded-xl bg-black px-4 py-3 text-center font-medium text-white ring-1 ring-zinc-700">
-               Add to Apple Wallet
-            </a>
-          )}
-          {google && (
-            <a href={`/member/${token}/google`} className="rounded-xl bg-black px-4 py-3 text-center font-medium text-white ring-1 ring-zinc-700">
-              Add to Google Wallet
-            </a>
-          )}
-        </div>
-      )}
-      <InstallHint />
-
-      <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
-        Partner perks
-      </h2>
-      {venues.length === 0 ? (
-        <p className="mt-2 text-sm text-zinc-500">Partner venues coming soon.</p>
-      ) : (
-        <ul className="mt-2 divide-y divide-zinc-200 dark:divide-zinc-800">
-          {venues.map((v) => (
-            <li key={v.id} className="py-3">
-              <p className="font-medium">{v.name}</p>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">{v.discount_text}</p>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {history && history.length > 0 && (
-        <>
-          <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-zinc-500">
-            Recent activity
-          </h2>
-          <ul className="mt-2 divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
-            {history.map((t) => (
-              <li key={t.id} className="flex justify-between py-2">
-                <span className="text-zinc-600 dark:text-zinc-400">
-                  {new Date(t.created_at).toLocaleDateString()} · {t.location || t.note || t.kind}
-                </span>
-                <span className="tabular-nums">{t.points > 0 ? "+" : ""}{t.points}</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </div>
+    <PortalFrame homeHref={paths.home}>
+      <MemberHome member={member} />
+    </PortalFrame>
   );
 }

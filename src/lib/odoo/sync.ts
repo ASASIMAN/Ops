@@ -11,7 +11,7 @@ import {
   fetchStockQuants,
   TRACKED_STOCK_LOCATIONS,
 } from "./stock";
-import { readCustomers, readLoyalty, readOrderCustomers } from "./loyalty";
+import { readCustomers, readLoyalty, readOrderCustomers, readPartnerLoyalty } from "./loyalty";
 
 /**
  * Pulls recent sales data from Odoo and upserts it into Supabase. Shared by
@@ -498,6 +498,12 @@ export async function runLoyaltySync({ backfillOrders = false }: { backfillOrder
       .delete()
       .lt("synced_at", now);
     if (pruneError) throw new Error(`Clearing old loyalty cards failed: ${pruneError.message}`);
+    // Same for programmes Odoo no longer reports as active loyalty programmes.
+    const { error: programPruneError } = await supabase
+      .from("loyalty_programs")
+      .delete()
+      .lt("synced_at", now);
+    if (programPruneError) throw new Error(`Clearing old loyalty programmes failed: ${programPruneError.message}`);
 
     const { data: membersLinked, error: linkError } = await supabase.rpc("link_members_to_odoo");
     if (linkError) throw new Error(`Matching app members to Odoo failed: ${linkError.message}`);
@@ -528,5 +534,59 @@ export async function runLoyaltySync({ backfillOrders = false }: { backfillOrder
       })
       .eq("id", run.id);
     throw error;
+  }
+}
+
+const PARTNER_REFRESH_EVERY_MS = 5 * 60 * 1000;
+const PARTNER_REFRESH_TIMEOUT_MS = 4000;
+
+/**
+ * Brings one customer's loyalty cards up to date from Odoo (members portal).
+ * Skipped if they were refreshed in the last few minutes, and given only a
+ * few seconds: if Odoo is slow or down, the member just sees the balance
+ * from the last sync instead of waiting. Returns when their cards were last
+ * brought up to date, or null if they never have been.
+ */
+export async function refreshPartnerLoyalty(partnerId: number): Promise<string | null> {
+  const supabase = createAdminClient();
+  const { data: existing } = await supabase
+    .from("loyalty_cards")
+    .select("synced_at")
+    .eq("odoo_partner_id", partnerId)
+    .order("synced_at", { ascending: false })
+    .limit(1);
+  const lastSynced = existing?.[0]?.synced_at ?? null;
+  if (lastSynced && Date.now() - new Date(lastSynced).getTime() < PARTNER_REFRESH_EVERY_MS) return lastSynced;
+
+  try {
+    const work = (async () => {
+      const { data: programs } = await supabase.from("loyalty_programs").select("odoo_program_id");
+      const programIds = (programs ?? []).map((p) => p.odoo_program_id as number);
+      const cards = await readPartnerLoyalty(partnerId, programIds);
+      const now = new Date().toISOString();
+      if (cards.length) {
+        const { error } = await supabase.from("loyalty_cards").upsert(
+          cards.map((c) => ({
+            odoo_card_id: c.id,
+            odoo_partner_id: partnerId,
+            odoo_program_id: programIds.includes(c.programId ?? -1) ? c.programId : null,
+            code: c.code,
+            points: c.points,
+            synced_at: now,
+          })),
+          { onConflict: "odoo_card_id" },
+        );
+        if (error) throw new Error(error.message);
+      }
+      await supabase.from("loyalty_cards").delete().eq("odoo_partner_id", partnerId).lt("synced_at", now);
+      return now;
+    })();
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Odoo took too long")), PARTNER_REFRESH_TIMEOUT_MS),
+    );
+    return await Promise.race([work, timeout]);
+  } catch (error) {
+    console.warn(`Live points refresh for Odoo customer ${partnerId} skipped:`, error instanceof Error ? error.message : error);
+    return lastSynced;
   }
 }

@@ -33,22 +33,19 @@ export function InstallHint() {
   if (!mode) return null;
 
   return (
-    <div className="mt-4 rounded-2xl border border-zinc-200 p-4 text-sm dark:border-zinc-800">
-      <p className="font-medium">Keep your card on your home screen</p>
+    <div className="border border-line bg-surface p-4 text-sm">
+      <p className="text-[0.6875rem] font-medium uppercase tracking-[0.18em]">Keep your card on your home screen</p>
       {mode === "ios" ? (
-        <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2 text-muted">
           Tap the <b>Share</b> button in Safari (the square with an arrow), then{" "}
           <b>Add to Home Screen</b>. Your ASASI card opens in one tap.
         </p>
       ) : deferred ? (
-        <button
-          onClick={() => deferred.prompt()}
-          className="mt-2 rounded-lg bg-zinc-900 px-4 py-2 text-white dark:bg-zinc-50 dark:text-zinc-900"
-        >
+        <button onClick={() => deferred.prompt()} className="as-btn mt-3">
           Add to home screen
         </button>
       ) : (
-        <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2 text-muted">
           Open your browser menu (⋮) and choose <b>Add to Home screen</b>.
         </p>
       )}

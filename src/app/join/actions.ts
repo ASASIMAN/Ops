@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateMemberCode, MEMBER_COOKIE } from "@/lib/membership/code";
+import { portalPaths } from "@/lib/membership/portal";
 
 export async function joinAction(formData: FormData) {
   // Honeypot: real people never fill the hidden field.
@@ -58,5 +59,6 @@ export async function joinAction(formData: FormData) {
     path: "/",
   });
 
-  redirect(`/member/${token}`);
+  // Joining signs them in: straight to their card in the members portal.
+  redirect((await portalPaths()).home);
 }

@@ -167,3 +167,48 @@ export async function readOrderCustomers(): Promise<[number, number][]> {
   );
   return rows.filter((r) => r.partner_id).map((r) => [r.id, (r.partner_id as [number, string])[0]]);
 }
+
+/**
+ * One customer's current loyalty balance, read straight from Odoo - what
+ * the members portal uses so a member sees points from a purchase made an
+ * hour ago, not just as of the morning sync. `programIds` are the loyalty
+ * programmes already known from the full sync; cards in any other
+ * programme (gift cards, coupons) are ignored, same as the full sync.
+ */
+export async function readPartnerLoyalty(partnerId: number, programIds: number[]): Promise<LoyaltyCard[]> {
+  // Programme 0 is the full sync's marker for an Odoo 15 instance (which
+  // has no programmes, just one balance per customer).
+  const odoo15 = programIds.length > 0 && programIds.every((id) => id === 0);
+  programIds = programIds.filter((id) => id > 0);
+  if (!odoo15 && !programIds.length) return [];
+  if (!odoo15) {
+    try {
+      const cards = await searchRead<{ id: number; program_id: Many2one; points: number; code?: string | false }>(
+        "loyalty.card",
+        [
+          ["partner_id", "=", partnerId],
+          ["program_id", "in", programIds],
+        ],
+        ["id", "program_id", "points", "code"],
+        { limit: 50, order: "id asc" },
+      );
+      return cards.map((c) => ({
+        id: c.id,
+        partnerId,
+        programId: c.program_id ? c.program_id[0] : null,
+        code: c.code || null,
+        points: Number(c.points) || 0,
+        expirationDate: null,
+      }));
+    } catch (error) {
+      if (!isMissingModel(error, "loyalty.card")) throw error;
+    }
+  }
+  // Odoo 15 and earlier.
+  const [partner] = await executeKw<{ id: number; loyalty_points?: number }[]>("res.partner", "read", [[partnerId]], {
+    fields: ["id", "loyalty_points"],
+    context: { active_test: false },
+  });
+  if (!partner || partner.loyalty_points === undefined) return [];
+  return [{ id: -partnerId, partnerId, programId: 0, code: null, points: Number(partner.loyalty_points) || 0, expirationDate: null }];
+}

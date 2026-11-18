@@ -1,81 +1,80 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { AsasiLogo } from "@/components/brand/asasi-logo";
+import { PortalFrame, PortalHeading } from "@/components/portal/frame";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { getMemberByToken } from "@/lib/membership/data";
 import { MEMBER_COOKIE } from "@/lib/membership/code";
+import { portalPaths } from "@/lib/membership/portal";
 import { joinAction } from "./actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Join ASASI Membership" };
-
-const ERRORS: Record<string, string> = {
-  name: "Please enter your name.",
-  email: "Please enter a valid email address.",
-  exists:
-    "That email is already registered. Open the ASASI card you saved to your phone wallet - or ask any team member to resend your link.",
-  failed: "Something went wrong. Please try again.",
-};
+export const metadata = { title: "Join ASASI Membership", robots: { index: false } };
 
 export default async function JoinPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string; src?: string }>;
 }) {
-  const { error, src } = await searchParams;
+  const [{ error, src }, paths] = await Promise.all([searchParams, portalPaths()]);
 
-  // Already joined on this device - go straight to their card.
+  // Already joined (or signed in) on this device - go straight to their card.
   const existing = (await cookies()).get(MEMBER_COOKIE)?.value;
   if (existing && !error && (await getMemberByToken(existing))) {
-    redirect(`/member/${existing}`);
+    redirect(paths.home);
   }
 
-  const input =
-    "rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base dark:border-zinc-700 dark:bg-zinc-900";
+  const ERRORS: Record<string, React.ReactNode> = {
+    name: "Please enter your name.",
+    email: "Please enter a valid email address.",
+    exists: (
+      <>
+        That email is already a member.{" "}
+        <a href={paths.home} className="underline underline-offset-4">
+          Sign in with it
+        </a>{" "}
+        to see your card and points.
+      </>
+    ),
+    failed: "Something went wrong. Please try again.",
+  };
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6 py-12">
-      <AsasiLogo className="h-9 self-start" />
-      <h1 className="mt-8 text-2xl font-semibold tracking-tight">
-        Join ASASI Membership
-      </h1>
-      <ul className="mt-3 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
-        <li>• Member discounts at our partner venues</li>
-        <li>• Earn points every time you shop with us</li>
-        <li>• Your card lives in your phone wallet - free to join</li>
-      </ul>
+    <PortalFrame homeHref={paths.home}>
+      <PortalHeading eyebrow="ASASI Membership" title="Join free">
+        Member discounts at our partner venues, points every time you shop with us, and your card on your phone.
+      </PortalHeading>
 
-      <form action={joinAction} className="mt-8 flex flex-col gap-4">
+      <form action={joinAction} className="flex flex-col gap-4">
         <input type="hidden" name="source" value={src ?? "qr"} />
-        <input
-          type="text" name="website" tabIndex={-1} autoComplete="off"
-          aria-hidden className="hidden"
-        />
-        <label className="flex flex-col gap-1 text-sm">
+        <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden className="hidden" />
+        <label className="as-field">
           Full name
-          <input name="fullName" required maxLength={120} autoComplete="name" className={input} />
+          <input name="fullName" required maxLength={120} autoComplete="name" className="as-input h-12 text-base" />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="as-field">
           Email
-          <input type="email" name="email" required autoComplete="email" inputMode="email" className={input} />
+          <input type="email" name="email" required autoComplete="email" inputMode="email" className="as-input h-12 text-base" />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
-          WhatsApp / phone <span className="text-zinc-400">(optional)</span>
-          <input type="tel" name="phone" autoComplete="tel" inputMode="tel" className={input} />
+        <label className="as-field">
+          WhatsApp / phone (optional)
+          <input type="tel" name="phone" autoComplete="tel" inputMode="tel" className="as-input h-12 text-base" />
         </label>
-        <label className="flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-          <input type="checkbox" name="marketingOptIn" className="mt-1" />
+        <label className="flex items-start gap-3 text-sm text-muted">
+          <input type="checkbox" name="marketingOptIn" className="mt-1 accent-[#1c2b10]" />
           Send me news and member offers from ASASI.
         </label>
-        {error && ERRORS[error] && (
-          <p className="text-sm text-red-600">{ERRORS[error]}</p>
-        )}
-        <button
-          type="submit"
-          className="rounded-lg bg-zinc-900 px-4 py-3 text-base font-medium text-white dark:bg-zinc-50 dark:text-zinc-900"
-        >
+        {error && ERRORS[error] && <p className="text-sm text-[#893131]">{ERRORS[error]}</p>}
+        <SubmitButton className="as-btn h-12" pendingLabel="Creating your card…">
           Get my membership card
-        </button>
+        </SubmitButton>
       </form>
-    </div>
+
+      <div className="mt-10 border-t border-line pt-6 text-center text-sm text-muted">
+        Already a member, or shopped with us before?{" "}
+        <a href={paths.home} className="text-ink underline underline-offset-4">
+          Sign in
+        </a>
+      </div>
+    </PortalFrame>
   );
 }

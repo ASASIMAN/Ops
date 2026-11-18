@@ -2,13 +2,40 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/setup"];
-// Member-facing pages (QR sign-up, member card, scan/verify). Matched by whole
-// path segment so e.g. "/v" never swallows "/venues" and "/member" never
-// swallows "/membership" (the staff-only module).
-const PUBLIC_SEGMENTS = ["join", "member", "v"];
+// Member-facing pages (QR sign-up, member card, scan/verify, members
+// portal). Matched by whole path segment so e.g. "/v" never swallows
+// "/venues" and "/member" never swallows "/membership" (the staff-only module).
+const PUBLIC_SEGMENTS = ["join", "member", "v", "portal"];
 const CHANGE_PASSWORD_PATH = "/change-password";
 
+// What members.studioasasi.com may show: the portal and the member pages it
+// links to, nothing of the staff app. Paths are whole first segments.
+const MEMBERS_HOST_SEGMENTS = new Set(["portal", "join", "member", "v", "brand", "fonts"]);
+// The portal is served at the root of the members host.
+const MEMBERS_HOST_REWRITES: Record<string, string> = { "/": "/portal", "/code": "/portal/code" };
+
+function isMembersHost(host: string | null): boolean {
+  if (!host) return false;
+  const h = host.toLowerCase().split(":")[0];
+  const configured = process.env.MEMBERS_HOST?.toLowerCase().trim();
+  return configured ? h === configured : h.startsWith("members.");
+}
+
 export async function middleware(request: NextRequest) {
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  if (isMembersHost(host)) {
+    const { pathname } = request.nextUrl;
+    const rewrite = MEMBERS_HOST_REWRITES[pathname];
+    if (rewrite) {
+      const url = request.nextUrl.clone();
+      url.pathname = rewrite;
+      return NextResponse.rewrite(url);
+    }
+    if (MEMBERS_HOST_SEGMENTS.has(pathname.split("/")[1])) return NextResponse.next();
+    // Anything of the staff app (login, dashboard, ...) - send to the portal.
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

@@ -1,4 +1,5 @@
-import { AsasiLogo } from "@/components/brand/asasi-logo";
+import { PortalFrame } from "@/components/portal/frame";
+import { portalPaths } from "@/lib/membership/portal";
 import {
   getActiveVenues, getIdrPerPoint, getMemberByCode, getStaffUser,
 } from "@/lib/membership/data";
@@ -28,7 +29,7 @@ export default async function VerifyPage({
 }) {
   const code = normalizeMemberCode((await params).code);
   const { result, points } = await searchParams;
-  const [member, staff] = await Promise.all([getMemberByCode(code), getStaffUser()]);
+  const [member, staff, paths] = await Promise.all([getMemberByCode(code), getStaffUser(), portalPaths()]);
 
   const first = member?.full_name.split(" ")[0];
   const lastInitial = member?.full_name.split(" ").slice(1).pop()?.[0];
@@ -39,32 +40,44 @@ export default async function VerifyPage({
   const linkedToOdoo = Boolean(member?.odoo_partner_id);
   const odoo = staff && member?.odoo_partner_id ? await fetchOdooPoints(createAdminClient(), member.odoo_partner_id) : null;
 
-  const input = "rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base dark:border-zinc-700 dark:bg-zinc-900";
-  const button = "rounded-lg bg-zinc-900 px-4 py-3 font-medium text-white dark:bg-zinc-50 dark:text-zinc-900";
+  const input = "as-input h-12 text-base";
+  const button = "as-btn h-12";
+  // Shown so a partner can tell a live check from a screenshot of an old one.
+  const checkedAt = new Intl.DateTimeFormat("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Makassar",
+  }).format(new Date());
 
   return (
-    <div className="mx-auto w-full max-w-md px-5 py-8">
-      <AsasiLogo className="h-7" />
-
-      <div className={`mt-6 rounded-2xl p-6 text-center ${valid ? "bg-emerald-50 dark:bg-emerald-950" : "bg-red-50 dark:bg-red-950"}`}>
-        <p className="text-4xl">{valid ? "✓" : "✕"}</p>
-        <p className="mt-2 text-xl font-semibold">
+    <PortalFrame homeHref={paths.home}>
+      <div className={`px-6 py-8 text-center ${valid ? "bg-brand text-white" : "border border-line-strong bg-surface"}`}>
+        <p className="text-5xl font-light" aria-hidden>
+          {valid ? "✓" : "✕"}
+        </p>
+        <p className="mt-3 text-lg uppercase tracking-[0.16em]">
           {!member ? "Member not found" : valid ? "Valid ASASI member" : "Membership suspended"}
         </p>
         {member && (
-          <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+          <p className={`mt-2 ${valid ? "text-white/75" : "text-muted"}`}>
             {first}{lastInitial ? ` ${lastInitial}.` : ""} · <span className="font-mono">{member.code}</span>
           </p>
         )}
+        <p className={`mt-4 text-[0.6875rem] uppercase tracking-[0.16em] ${valid ? "text-white/60" : "text-muted"}`}>
+          Checked {checkedAt} (Bali)
+        </p>
       </div>
 
       {!staff && valid && venues.length > 0 && (
         <>
-          <h2 className="mt-6 text-sm font-semibold uppercase tracking-wide text-zinc-500">Member discount</h2>
-          <ul className="mt-2 divide-y divide-zinc-200 dark:divide-zinc-800">
+          <h2 className="mb-3 mt-8 text-[0.6875rem] font-medium uppercase tracking-[0.18em] text-muted">Member discount</h2>
+          <ul className="divide-y divide-line border-y border-line">
             {venues.map((v) => (
-              <li key={v.id} className="py-2 text-sm">
-                <span className="font-medium">{v.name}</span> - {v.discount_text}
+              <li key={v.id} className="py-3 text-sm">
+                {v.name} <span className="text-muted">- {v.discount_text}</span>
               </li>
             ))}
           </ul>
@@ -74,21 +87,21 @@ export default async function VerifyPage({
       {staff && member && (
         <div className="mt-6 space-y-6">
           {(result === "earn" || result === "redeem") && (
-            <p className="rounded-lg bg-emerald-100 p-3 text-sm text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100">
+            <p className="border border-line-strong border-l-2 border-l-[#426030] bg-surface px-4 py-3 text-sm">
               {result === "earn" ? `Added ${points} points.` : `Redeemed ${points} points.`}
             </p>
           )}
           {result && RESULTS[result] && (
-            <p className="rounded-lg bg-red-100 p-3 text-sm text-red-900">{RESULTS[result][0]}</p>
+            <p className="border border-line-strong border-l-2 border-l-[#893131] bg-surface px-4 py-3 text-sm">{RESULTS[result][0]}</p>
           )}
 
-          <div className="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
-            <p className="text-sm text-zinc-500">Points balance</p>
-            <p className="text-4xl font-semibold tabular-nums">
+          <div className="border border-line bg-surface p-5">
+            <p className="text-[0.6875rem] font-medium uppercase tracking-[0.18em] text-muted">Points balance</p>
+            <p className="mt-1 text-4xl font-light tabular-nums">
               {formatPoints((odoo?.points ?? 0) + member.points_balance)}
             </p>
             {linkedToOdoo && (
-              <p className="mt-1 text-sm text-zinc-500">
+              <p className="mt-1 text-sm text-muted">
                 {odoo ? `${formatPoints(odoo.points)} in Odoo (${odoo.programs.join(", ") || "loyalty"})` : "No Odoo loyalty card yet"}
                 {member.points_balance > 0 && ` + ${formatPoints(member.points_balance)} added in the app`}
               </p>
@@ -96,7 +109,7 @@ export default async function VerifyPage({
           </div>
 
           {valid && linkedToOdoo && (
-            <p className="rounded-lg bg-zinc-100 p-3 text-sm dark:bg-zinc-900">
+            <p className="border border-line bg-surface px-4 py-3 text-sm">
               Linked to this customer in Odoo: points are added automatically when they&apos;re added to the sale at
               the till, and redeemed there as a reward.
             </p>
@@ -107,11 +120,11 @@ export default async function VerifyPage({
               {!linkedToOdoo && (
               <form action={earnPointsAction} className="flex flex-col gap-3">
                 <input type="hidden" name="code" value={member.code} />
-                <h2 className="font-medium">Add points for a purchase</h2>
+                <h2 className="text-[0.6875rem] font-medium uppercase tracking-[0.18em] text-muted">Add points for a purchase</h2>
                 <input name="amountIdr" type="number" min={1} step={1} required inputMode="numeric"
                   placeholder="Sale total (IDR)" className={input} />
                 <input name="location" placeholder="Store (optional)" className={input} />
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-muted">
                   1 point per IDR {idrPerPoint.toLocaleString()} spent.
                 </p>
                 <button className={button}>Add points</button>
@@ -121,7 +134,7 @@ export default async function VerifyPage({
               {(!linkedToOdoo || member.points_balance > 0) && (
               <form action={redeemPointsAction} className="flex flex-col gap-3">
                 <input type="hidden" name="code" value={member.code} />
-                <h2 className="font-medium">{linkedToOdoo ? "Redeem points added in the app" : "Redeem points"}</h2>
+                <h2 className="text-[0.6875rem] font-medium uppercase tracking-[0.18em] text-muted">{linkedToOdoo ? "Redeem points added in the app" : "Redeem points"}</h2>
                 <input name="points" type="number" min={1} step={1} required inputMode="numeric"
                   placeholder="Points to redeem" className={input} />
                 <input name="note" placeholder="What for? (optional)" className={input} />
@@ -132,6 +145,6 @@ export default async function VerifyPage({
           )}
         </div>
       )}
-    </div>
+    </PortalFrame>
   );
 }
