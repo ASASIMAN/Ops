@@ -91,7 +91,7 @@ export default async function MembershipPage({
     return query ? `/membership?${query}` : "/membership";
   };
 
-  // When each member on this page last opened the members portal (migration 0042).
+  // When each member on this page last checked their points on the members portal (migration 0042).
   const memberIds = directory.ok ? directory.rows.map((r) => r.memberId).filter((id): id is string => Boolean(id)) : [];
   const seen = new Map<string, string>();
   const fromPortal = new Set<string>();
@@ -251,10 +251,10 @@ export default async function MembershipPage({
                               )}
                               <span className="block text-xs text-muted">
                                 {r.memberCode
-                                  ? `${r.memberId && fromPortal.has(r.memberId) ? "Card made at first sign-in" : "QR sign-up"}${r.joinedAppAt ? `, ${DATE.format(new Date(r.joinedAppAt))}` : ""}${r.odooPartnerId === null ? " · not found in Odoo" : ""}`
+                                  ? `${r.memberId && fromPortal.has(r.memberId) ? "Card made when they first checked points online" : "QR sign-up"}${r.joinedAppAt ? `, ${DATE.format(new Date(r.joinedAppAt))}` : ""}${r.odooPartnerId === null ? " · not found in Odoo" : ""}`
                                   : ""}
                                 {r.memberId && seen.has(r.memberId) && (
-                                  <span className="block">Last opened app {DATE.format(new Date(seen.get(r.memberId)!))}</span>
+                                  <span className="block">Last checked points online {DATE.format(new Date(seen.get(r.memberId)!))}</span>
                                 )}
                               </span>
                             </td>

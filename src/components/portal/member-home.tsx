@@ -1,5 +1,5 @@
 import { InstallHint } from "@/app/member/[token]/install-hint";
-import { getActiveVenues, type Member } from "@/lib/membership/data";
+import { getActiveVenues, shortName, type Member } from "@/lib/membership/data";
 import { fetchOdooPoints, formatPoints } from "@/lib/membership/directory";
 import { qrSvg } from "@/lib/membership/qr";
 import { getBaseUrl, verifyUrl } from "@/lib/membership/urls";
@@ -20,7 +20,9 @@ function freshness(syncedAt: string | null): string {
 /**
  * A member's own page: their card and QR (what partner venues scan), their
  * points - refreshed live from the Odoo till when they're an Odoo loyalty
- * customer - their visits and the partner perks.
+ * customer - and the partner perks. Anyone who knows a member's email can
+ * open this, so it shows first name and last initial only, and no
+ * purchase history.
  */
 export async function MemberHome({ member, signOut }: { member: Member; signOut?: React.ReactNode }) {
   const admin = createAdminClient();
@@ -31,17 +33,9 @@ export async function MemberHome({ member, signOut }: { member: Member; signOut?
     getActiveVenues(),
     partnerId ? refreshPartnerLoyalty(partnerId).catch(() => null) : Promise.resolve(null),
   ]);
-  const [qr, odoo, visits, { data: activity }] = await Promise.all([
+  const [qr, odoo, { data: activity }] = await Promise.all([
     qrSvg(verifyUrl(base, member.code), { margin: 0 }),
     partnerId ? fetchOdooPoints(admin, partnerId) : Promise.resolve(null),
-    partnerId
-      ? admin
-          .from("orders")
-          .select("order_date", { count: "exact" })
-          .eq("odoo_partner_id", partnerId)
-          .order("order_date", { ascending: false })
-          .limit(1)
-      : Promise.resolve(null),
     // Points our team added or redeemed by hand in the app (till points live in Odoo).
     admin
       .from("member_transactions")
@@ -53,8 +47,7 @@ export async function MemberHome({ member, signOut }: { member: Member; signOut?
 
   const points = (odoo?.points ?? 0) + member.points_balance;
   const firstName = member.full_name.split(" ")[0];
-  const lastVisit = visits && !visits.error ? (visits.data?.[0]?.order_date as string | undefined) : undefined;
-  const visitCount = visits && !visits.error ? (visits.count ?? 0) : 0;
+  const shownName = shortName(member.full_name);
   const active = member.status === "active";
 
   return (
@@ -74,7 +67,7 @@ export async function MemberHome({ member, signOut }: { member: Member; signOut?
           <span>ASASI Member</span>
           <span className="font-mono tracking-[0.12em] text-white/80">{member.code}</span>
         </div>
-        <p className="mt-5 text-lg tracking-[0.04em]">{member.full_name}</p>
+        <p className="mt-5 text-lg tracking-[0.04em]">{shownName}</p>
         <div
           className="mx-auto mt-6 aspect-square w-56 max-w-full bg-white p-3 [&_svg]:h-full [&_svg]:w-full"
           dangerouslySetInnerHTML={{ __html: qr }}
@@ -99,12 +92,6 @@ export async function MemberHome({ member, signOut }: { member: Member; signOut?
                 .join(" · ")
             : "Give the email on your card at the till when you shop, so your purchases earn points."}
         </p>
-        {partnerId && visitCount > 0 && (
-          <p className="mt-4 border-t border-line pt-4 text-[0.8125rem]">
-            {visitCount} visit{visitCount === 1 ? "" : "s"}
-            {lastVisit && <span className="text-muted"> · last on {DATE.format(new Date(lastVisit))}</span>}
-          </p>
-        )}
       </section>
 
       {(appleWalletConfigured() || googleWalletConfigured()) && (

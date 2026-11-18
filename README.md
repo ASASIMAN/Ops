@@ -74,7 +74,7 @@ src/app/(app)/inventory/    Stock by location and variant, on order, slow movers
 src/app/(app)/forecast/     PO planner, restock alerts / forecasts, lead times
 src/app/(app)/marketing/    Marketing Command Centre
 src/app/(app)/membership/   Members, scan, partner venues, tent card
-src/app/portal/             members portal - sign in, card, QR, points (served at the root of members.studioasasi.com)
+src/app/portal/             members portal - email in, card + QR + points out (served at the root of members.studioasasi.com)
 src/app/join/, member/, v/  public member sign-up, card link, partner QR check
 src/app/(app)/hub/          old landing page - now just redirects to /dashboard
 src/app/api/sync/           Odoo -> Supabase sync job
@@ -842,39 +842,40 @@ Version: Odoo 16+ keeps points on `loyalty.card`; Odoo 15 and earlier on
 
 #### Members portal (members.studioasasi.com)
 
-A sign-in for members, linked from the website: they see their card, QR
-code and points, and show the QR to partner venues. The same app serves it,
-so there is nothing separate to build or host.
+Linked from the website's nav: a member types their email and sees their
+points and their member card with a QR code to show partner venues. No
+password and no emailed code - points can't be spent online. The same
+Vercel project serves it (the staff app is at app.studioasasi.com), so
+there is nothing separate to build or host.
 
-- On `members.studioasasi.com` the portal opens at the root: `/` is sign-in
-  (or the member's card once signed in), `/code` the enter-code screen,
-  plus the public `/join`, `/v/<code>` and `/member/<token>`. Every staff
-  screen redirects to `/` on that address (`src/middleware.ts`). On the
-  main app address the same portal is at `/portal`.
-- Sign-in is a 6-digit code emailed to the member - no password. Codes are
-  stored hashed, last 10 minutes and allow 5 tries; 3 requests per email
-  and 10 per network per 15 minutes. Anyone typing an email sees the same
-  "code sent" screen, so the portal never reveals who is a member.
-- Who can sign in: any app member, and any Odoo customer holding a loyalty
-  card with that email. An Odoo-only customer gets an app card on first
-  sign-in (shown on the Members page as "Card made at first sign-in").
-  Two Odoo loyalty customers sharing one email can't sign in with it -
-  staff need to fix the duplicate in Odoo.
+- On `members.studioasasi.com` the portal opens at the root. Only `/`,
+  `/v/<code>` (what the QR opens), `/member/<token>` and `/join` (the
+  in-store QR sign-up) work there; every staff screen redirects to `/`
+  (`src/middleware.ts`). On the staff address the same portal is at
+  `/portal`.
+- Who is found: app members (in-store QR sign-ups) and every Odoo customer
+  with a loyalty card under that email. An Odoo customer gets a member
+  number + QR the first time they look themselves up (Members page:
+  "Card made when they first checked points online"). An email on two
+  different Odoo loyalty customers isn't guessed - the member is asked to
+  see staff, who fix the duplicate in Odoo.
 - Points are read live from Odoo on each visit (at most every 5 minutes per
   member, 4-second limit); if Odoo is slow the card shows the last synced
   balance with its date.
-- Members stay signed in on that phone for a year.
+- Because anyone who knows an email can look it up, the card shows first
+  name + last initial only and no purchase history, and each network
+  address gets 30 lookups per 15 minutes (`member_lookups` keeps the
+  address and time, not the email).
+- The member is remembered on that phone for a year ("Not you? Use a
+  different email" clears it).
 
 Setup:
 
-1. Apply `supabase/migrations/0042_member_portal.sql` (after 0040 and 0041).
+1. Apply `supabase/migrations/0042_member_portal.sql`, then
+   `0043_member_email_lookup.sql`.
 2. Vercel -> project -> Settings -> Domains: add `members.studioasasi.com`,
    then add the CNAME record Vercel shows at the studioasasi.com DNS host.
-3. Email: create a [Resend](https://resend.com) account, verify the
-   studioasasi.com domain (it gives DNS records to add), create an API key,
-   and set `RESEND_API_KEY` and `MEMBERS_EMAIL_FROM` in Vercel. Without the
-   key, members are told the code couldn't be sent.
-4. Set `MEMBERSHIP_BASE_URL=https://members.studioasasi.com` so QR codes and
-   wallet passes point at the members address, then redeploy.
-5. Website nav: link to `https://members.studioasasi.com` (sign in) and
-   `https://members.studioasasi.com/join?src=website` (join).
+3. Set `MEMBERSHIP_BASE_URL=https://members.studioasasi.com` so new QR codes
+   and wallet passes point at the members address, then redeploy. Codes
+   already printed or saved keep working.
+4. Website nav: link to `https://members.studioasasi.com`.

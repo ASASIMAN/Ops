@@ -3,16 +3,16 @@ import { MemberHome } from "@/components/portal/member-home";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { getSignedInMember, portalPaths } from "@/lib/membership/portal";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requestCodeAction, signOutAction } from "./actions";
+import { lookupAction, signOutAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 const ERRORS: Record<string, string> = {
-  email: "Please enter a valid email address.",
-  limited: "Too many codes requested. Please wait 15 minutes and try again.",
-  send: "We couldn't send the email just now. Please try again in a moment.",
+  invalid: "Please enter a valid email address.",
+  not_found: "We couldn't find a member with that email. Try the one you gave us in store.",
+  ambiguous: "That email is on more than one account with us. Please ask us in store and we'll sort it out.",
+  limited: "Too many tries from this network. Please wait 15 minutes and try again.",
   failed: "Something went wrong. Please try again.",
-  expired: "That sign-in took too long. Enter your email again for a new code.",
 };
 
 export default async function PortalPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
@@ -26,7 +26,7 @@ export default async function PortalPage({ searchParams }: { searchParams: Promi
           member={member}
           signOut={
             <form action={signOutAction}>
-              <SubmitButton className="as-link">Sign out</SubmitButton>
+              <SubmitButton className="as-link">Not you? Use a different email</SubmitButton>
             </form>
           }
         />
@@ -36,10 +36,10 @@ export default async function PortalPage({ searchParams }: { searchParams: Promi
 
   return (
     <PortalFrame homeHref={paths.home}>
-      <PortalHeading eyebrow="ASASI Membership" title="Sign in">
-        Enter the email you gave us in store or when you joined. We&apos;ll email you a 6-digit code - no password needed.
+      <PortalHeading eyebrow="ASASI Membership" title="Your points">
+        Enter the email you gave us in store to see your points and your member card.
       </PortalHeading>
-      <form action={requestCodeAction} className="flex flex-col gap-4">
+      <form action={lookupAction} className="flex flex-col gap-4">
         <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden className="hidden" />
         <label className="as-field">
           Email
@@ -54,16 +54,13 @@ export default async function PortalPage({ searchParams }: { searchParams: Promi
           />
         </label>
         {error && ERRORS[error] && <p className="text-sm text-[#893131]">{ERRORS[error]}</p>}
-        <SubmitButton className="as-btn h-12" pendingLabel="Sending code…">
-          Email me a code
+        <SubmitButton className="as-btn h-12" pendingLabel="Finding your card…">
+          Show my card
         </SubmitButton>
       </form>
-      <div className="mt-10 border-t border-line pt-6 text-center text-sm text-muted">
-        Not a member yet?{" "}
-        <a href="/join?src=web" className="text-ink underline underline-offset-4">
-          Join free
-        </a>
-      </div>
+      <p className="mt-10 border-t border-line pt-6 text-center text-sm text-muted">
+        Not a member yet? Join at any ASASI store - it&apos;s free.
+      </p>
     </PortalFrame>
   );
 }

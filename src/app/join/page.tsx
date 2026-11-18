@@ -30,7 +30,7 @@ export default async function JoinPage({
       <>
         That email is already a member.{" "}
         <a href={paths.home} className="underline underline-offset-4">
-          Sign in with it
+          Enter it here
         </a>{" "}
         to see your card and points.
       </>

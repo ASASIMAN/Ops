@@ -1,7 +1,7 @@
 import { PortalFrame } from "@/components/portal/frame";
 import { portalPaths } from "@/lib/membership/portal";
 import {
-  getActiveVenues, getIdrPerPoint, getMemberByCode, getStaffUser,
+  getActiveVenues, getIdrPerPoint, getMemberByCode, getStaffUser, shortName,
 } from "@/lib/membership/data";
 import { normalizeMemberCode } from "@/lib/membership/code";
 import { fetchOdooPoints, formatPoints } from "@/lib/membership/directory";
@@ -31,8 +31,6 @@ export default async function VerifyPage({
   const { result, points } = await searchParams;
   const [member, staff, paths] = await Promise.all([getMemberByCode(code), getStaffUser(), portalPaths()]);
 
-  const first = member?.full_name.split(" ")[0];
-  const lastInitial = member?.full_name.split(" ").slice(1).pop()?.[0];
   const valid = member?.status === "active";
 
   const venues = valid && !staff ? await getActiveVenues() : [];
@@ -63,7 +61,7 @@ export default async function VerifyPage({
         </p>
         {member && (
           <p className={`mt-2 ${valid ? "text-white/75" : "text-muted"}`}>
-            {first}{lastInitial ? ` ${lastInitial}.` : ""} · <span className="font-mono">{member.code}</span>
+            {shortName(member.full_name)} · <span className="font-mono">{member.code}</span>
           </p>
         )}
         <p className={`mt-4 text-[0.6875rem] uppercase tracking-[0.16em] ${valid ? "text-white/60" : "text-muted"}`}>

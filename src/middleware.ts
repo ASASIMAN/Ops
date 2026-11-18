@@ -12,7 +12,7 @@ const CHANGE_PASSWORD_PATH = "/change-password";
 // links to, nothing of the staff app. Paths are whole first segments.
 const MEMBERS_HOST_SEGMENTS = new Set(["portal", "join", "member", "v", "brand", "fonts"]);
 // The portal is served at the root of the members host.
-const MEMBERS_HOST_REWRITES: Record<string, string> = { "/": "/portal", "/code": "/portal/code" };
+const MEMBERS_HOST_REWRITES: Record<string, string> = { "/": "/portal" };
 
 function isMembersHost(host: string | null): boolean {
   if (!host) return false;

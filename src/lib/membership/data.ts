@@ -1,6 +1,13 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
+/** "Jane Doe" -> "Jane D.": what member-facing and partner pages show. */
+export function shortName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  const lastInitial = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return lastInitial ? `${parts[0]} ${lastInitial}.` : parts[0];
+}
+
 export interface Member {
   id: string;
   code: string;
