@@ -10,8 +10,11 @@ export interface Member {
   phone: string | null;
   marketing_opt_in: boolean;
   status: "active" | "suspended";
+  /** Points added in the app by staff. A member linked to Odoo also has their Odoo loyalty balance - see fetchOdooPoints. */
   points_balance: number;
   lifetime_points: number;
+  /** Their Odoo customer, once matched (migration 0041); undefined before that migration is run. */
+  odoo_partner_id?: number | null;
   created_at: string;
 }
 

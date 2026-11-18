@@ -12,6 +12,7 @@ import { addMonths, monthsTouched, resolvePeriod, startOfMonth } from "@/lib/biz
 import {
   ROLLUPS_MIGRATION,
   fetchByCategory,
+  fetchCustomerMix,
   fetchDaily,
   fetchExtras,
   fetchInventorySummary,
@@ -83,6 +84,7 @@ export default async function DashboardPage({
     slowMovers,
     marketingMonths,
     members,
+    customerMix,
   ] = await Promise.all([
     seesSales ? fetchTotals(admin, period) : skip,
     seesSales ? fetchTotals(admin, period.prev) : skip,
@@ -100,6 +102,7 @@ export default async function DashboardPage({
     seesInventory ? fetchSlowMovers(admin, SLOW_MOVER_DAYS, 8) : skip,
     seesMarketing ? fetchMarketingMonths(admin) : skip,
     seesMembers ? fetchMemberStats(admin, period.fromTs, period.toTs) : skip,
+    seesSales ? fetchCustomerMix(admin, period) : skip,
   ]);
 
   const periodQuery = new URLSearchParams({ period: period.key, ...(period.key === "custom" ? { from: period.from, to: period.to } : {}) }).toString();
@@ -543,30 +546,68 @@ export default async function DashboardPage({
             {seesMembers && (
               <>
                 <Stat
-                  label="Members"
-                  value={members ? num(members.total) : null}
-                  note={members ? "Signed up through the in-store QR" : "Membership isn't set up yet"}
+                  label="Loyalty members"
+                  tag={members?.loyaltyMembers !== null && members?.loyaltyMembers !== undefined ? "Odoo" : undefined}
+                  value={members ? num(members.loyaltyMembers ?? members.total) : null}
+                  note={
+                    !members
+                      ? "Membership isn't set up yet"
+                      : members.loyaltyMembers === null
+                        ? "QR sign-ups (Odoo loyalty not connected yet)"
+                        : `${num(members.total)} signed up with the in-store QR`
+                  }
                   href="/membership"
                 />
                 <Stat
-                  label="New members"
+                  label="New QR sign-ups"
                   value={members ? num(members.joinedInPeriod) : null}
                   note={members ? `Joined ${period.rangeLabel}` : undefined}
-                  href="/membership"
+                  href="/membership?view=app_only"
                 />
               </>
             )}
-            <div className="as-stat col-span-2">
-              <div className="as-stat-label">New vs returning customers · repeat purchase rate</div>
-              <div className="as-stat-value" data-empty="true">
-                No data
-              </div>
-              <div className="as-stat-foot">
-                POS orders are synced without a customer attached and the online store isn&apos;t connected, so there is
-                nothing to tell a first purchase from a repeat one. Syncing the customer on each Odoo order, or
-                connecting Shopify, would make this measurable.
-              </div>
-            </div>
+            {seesSales &&
+              (() => {
+                const mix = customerMix?.ok ? customerMix.data : null;
+                const coverage = mix && mix.ordersTotal > 0 ? (mix.ordersWithCustomer / mix.ordersTotal) * 100 : null;
+                const coverageNote =
+                  mix && coverage !== null
+                    ? `From the ${pct(coverage, 0)} of orders (${num(mix.ordersWithCustomer)} of ${num(mix.ordersTotal)}) that had a customer added at the till.`
+                    : undefined;
+                if (!mix || mix.customers === 0) {
+                  return (
+                    <div className="as-stat col-span-2">
+                      <div className="as-stat-label">New vs returning customers · repeat purchase rate</div>
+                      <div className="as-stat-value" data-empty="true">
+                        No data
+                      </div>
+                      <div className="as-stat-foot">
+                        {customerMix && !customerMix.ok && customerMix.missing
+                          ? "Needs supabase/migrations/0041_odoo_loyalty.sql and a sync from Odoo on the Members page."
+                          : mix && mix.ordersTotal > 0
+                            ? "None of this period's orders had a customer added at the till, so a first purchase can't be told from a repeat one."
+                            : "No orders in this period."}
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <>
+                    <Stat
+                      label="New vs returning"
+                      value={`${num(mix.newCustomers)} / ${num(mix.returningCustomers)}`}
+                      note={`New / returning customers. ${coverageNote}`}
+                      href="/membership?sort=recent"
+                    />
+                    <Stat
+                      label="Repeat purchase rate"
+                      value={pct((mix.repeatCustomers / mix.customers) * 100, 0)}
+                      note={`${num(mix.repeatCustomers)} of ${num(mix.customers)} customers have bought more than once. ${coverageNote}`}
+                      href="/membership?sort=spend"
+                    />
+                  </>
+                );
+              })()}
           </div>
         </>
       )}

@@ -19,6 +19,8 @@ async function apply(formData: FormData, kind: "earn" | "redeem") {
   let amount: number | null = null;
 
   if (kind === "earn") {
+    // A member linked to Odoo earns at the till; adding here too would count the sale twice.
+    if (member.odoo_partner_id) redirect(`/v/${code}?result=odoo`);
     amount = Math.round(Number(formData.get("amountIdr")));
     if (!Number.isFinite(amount) || amount <= 0) redirect(`/v/${code}?result=invalid`);
     points = Math.floor(amount / (await getIdrPerPoint()));

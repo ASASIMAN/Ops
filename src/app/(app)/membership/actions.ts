@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { extractMemberCode } from "@/lib/membership/code";
 import { getStaffUser } from "@/lib/membership/data";
+import { runLoyaltySync } from "@/lib/odoo/sync";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 async function requireStaff() {
@@ -59,4 +60,25 @@ export async function deleteVenueAction(formData: FormData) {
   const id = Number(formData.get("id"));
   if (id) await createAdminClient().from("partner_venues").delete().eq("id", id);
   revalidatePath("/membership/venues");
+}
+
+/**
+ * "Sync from Odoo" on the Members page: refreshes every customer's points,
+ * contact details and app link, and back-fills which customer each older
+ * synced order belongs to (the daily cron skips that part - see
+ * runLoyaltySync).
+ */
+export async function syncLoyaltyAction() {
+  await requireStaff();
+  let result: Awaited<ReturnType<typeof runLoyaltySync>>;
+  try {
+    result = await runLoyaltySync({ backfillOrders: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    redirect(`/membership?syncError=${encodeURIComponent(message.slice(0, 300))}`);
+  }
+  revalidatePath("/membership");
+  redirect(
+    `/membership?synced=${result.customers}&cards=${result.cards}&linked=${result.membersLinked}&orders=${result.ordersLinked}`,
+  );
 }

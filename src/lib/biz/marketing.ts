@@ -39,6 +39,8 @@ export async function fetchMarketingMonths(admin: SupabaseClient): Promise<Marke
 export interface MemberStats {
   total: number;
   joinedInPeriod: number;
+  /** Customers holding an Odoo loyalty card; null until migration 0041 is run. */
+  loyaltyMembers: number | null;
 }
 
 /** null when the membership tables aren't installed. */
@@ -47,10 +49,12 @@ export async function fetchMemberStats(
   fromTs: string,
   toTs: string,
 ): Promise<MemberStats | null> {
-  const [all, joined] = await Promise.all([
+  const [all, joined, summary] = await Promise.all([
     admin.from("members").select("*", { count: "exact", head: true }),
     admin.from("members").select("*", { count: "exact", head: true }).gte("created_at", fromTs).lt("created_at", toTs),
+    admin.rpc("membership_summary"),
   ]);
   if (all.error || joined.error) return null;
-  return { total: all.count ?? 0, joinedInPeriod: joined.count ?? 0 };
+  const loyalty = summary.error ? null : (((summary.data ?? []) as { odoo_customers: number }[])[0]?.odoo_customers ?? 0);
+  return { total: all.count ?? 0, joinedInPeriod: joined.count ?? 0, loyaltyMembers: loyalty === null ? null : Number(loyalty) };
 }

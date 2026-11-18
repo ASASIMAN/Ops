@@ -806,3 +806,33 @@ routes (no login): `/join`, `/member/<token>`, `/v/<code>`.
    camera see "Valid member" + the offer; signed-in staff see the same page with
    add-points / redeem controls. Points: 1 per IDR 10,000 (edit
    `membership_idr_per_point` in `assumptions`).
+
+#### Odoo loyalty points
+
+Points earned and redeemed at the till live in Odoo's POS loyalty programme,
+so Odoo is the record of everyone's balance. `supabase/migrations/0041_odoo_loyalty.sql`
+adds a read-only copy of it, and the loyalty sync (`runLoyaltySync` in
+`src/lib/odoo/sync.ts`) fills it:
+
+- every customer holding a card in a *loyalty* programme (gift cards,
+  coupons, eWallets and promo codes are left out), with their points,
+  name, email and phone;
+- which customer each synced POS order belongs to, so the Members page can
+  show spend, visits and last visit, and the dashboard can show new vs
+  returning customers;
+- a link from each QR sign-up to their Odoo customer - by email, then by
+  phone (`0812…`, `+62 812…` and `62812…` compare equal). Only an
+  unambiguous match links; nothing is guessed.
+
+It runs every morning with the sales sync, and on demand with **Sync from
+Odoo** on the Members page. The first time, press that button: it also
+back-fills the customer on every order synced before this existed (the
+daily run skips that pass to stay inside Vercel's time limit).
+
+For a member linked to Odoo, the app shows Odoo's balance plus any points
+staff had added in the app, and no longer offers "Add points" on their
+scan page - the till already adds them, so a sale is never counted twice.
+Nothing is ever written back to Odoo.
+
+Version: Odoo 16+ keeps points on `loyalty.card`; Odoo 15 and earlier on
+`res.partner.loyalty_points`. The sync detects which one the instance has.

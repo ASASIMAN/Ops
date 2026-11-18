@@ -24,9 +24,10 @@ export async function getNotifications(role: string): Promise<AppNotification[]>
   const out: AppNotification[] = [];
   const seesSales = canAccessModule(role, "operations") || canAccessModule(role, "forecast");
   const seesMarketing = canAccessModule(role, "marketing");
+  const seesMembers = canAccessModule(role, "membership");
 
   const [syncRes, taskRes, insights] = await Promise.all([
-    seesSales
+    seesSales || seesMembers
       ? admin
           .from("sync_runs")
           .select("sync_type, status, started_at, error_message")
@@ -51,10 +52,16 @@ export async function getNotifications(role: string): Promise<AppNotification[]>
     started_at: string;
     error_message: string | null;
   }[];
-  for (const [type, label, href] of [
-    ["sales", "Sales", "/operations"],
-    ["stock", "Stock", "/forecast"],
-  ] as const) {
+  const syncTypes = [
+    ...(seesSales
+      ? ([
+          ["sales", "Sales", "/operations"],
+          ["stock", "Stock", "/forecast"],
+        ] as const)
+      : []),
+    ...(seesMembers ? ([["loyalty", "Loyalty points", "/membership"]] as const) : []),
+  ];
+  for (const [type, label, href] of syncTypes) {
     const ofType = runs.filter((r) => (r.sync_type ?? "sales") === type);
     const latest = ofType[0];
     if (!latest) continue;

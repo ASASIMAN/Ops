@@ -11,6 +11,7 @@ import {
   fetchStockQuants,
   TRACKED_STOCK_LOCATIONS,
 } from "./stock";
+import { readCustomers, readLoyalty, readOrderCustomers } from "./loyalty";
 
 /**
  * Pulls recent sales data from Odoo and upserts it into Supabase. Shared by
@@ -153,6 +154,11 @@ export async function runOdooSyncRange(
       dateFrom.toISOString(),
       dateTo.toISOString(),
     );
+    // orders.odoo_partner_id arrives with migration 0041. Until that's run,
+    // leave it out rather than fail the whole sales sync over one column.
+    const hasPartnerColumn = !(
+      await supabase.from("orders").select("odoo_partner_id").limit(1)
+    ).error;
     await upsertInBatches(
       supabase,
       "orders",
@@ -165,6 +171,7 @@ export async function runOdooSyncRange(
         pos_reference: o.posReference,
         state: o.state,
         total_amount: o.totalAmount,
+        ...(hasPartnerColumn ? { odoo_partner_id: o.partnerOdooId } : {}),
       })),
       "odoo_order_id",
     );
@@ -389,6 +396,137 @@ export async function runStockSync() {
       })
       .eq("id", run!.id);
 
+    throw error;
+  }
+}
+
+/**
+ * Mirrors Odoo's POS loyalty into the app (migration 0041): every
+ * customer's points per programme, their name and contact details, and
+ * which customer each synced POS order belongs to. Then links app sign-ups
+ * to their Odoo customer (by email, then phone - unambiguous matches only).
+ *
+ * Read-only towards Odoo. Points are replaced wholesale each run, since
+ * Odoo's balance is the record: a card Odoo no longer reports is removed.
+ */
+export async function runLoyaltySync({ backfillOrders = false }: { backfillOrders?: boolean } = {}) {
+  const supabase = createAdminClient();
+
+  const { data: run, error: runError } = await supabase
+    .from("sync_runs")
+    .insert({ status: "running", sync_type: "loyalty" })
+    .select()
+    .single();
+  if (runError) {
+    throw new Error(
+      /check constraint|sync_type/i.test(runError.message)
+        ? "Run supabase/migrations/0041_odoo_loyalty.sql first - the loyalty tables aren't set up yet."
+        : `Couldn't start the loyalty sync: ${runError.message}`,
+    );
+  }
+
+  try {
+    const { programs, cards } = await readLoyalty();
+    const now = new Date().toISOString();
+
+    // The sales sync records the customer on every order it brings in. Orders
+    // synced before that (migration 0041) get theirs here - a pass over every
+    // Odoo order that had a customer, so it's only run when asked for (the
+    // "Sync from Odoo" button), not on the daily cron with its time limit.
+    let ordersLinked = 0;
+    if (backfillOrders) {
+      const orderCustomers = await readOrderCustomers();
+      for (let i = 0; i < orderCustomers.length; i += PAGE) {
+        const { data, error } = await supabase.rpc("set_order_partners", {
+          p_pairs: orderCustomers.slice(i, i + PAGE).map(([o, p]) => ({ o, p })),
+        });
+        if (error) throw new Error(`Linking orders to customers failed: ${error.message}`);
+        ordersLinked += Number(data ?? 0);
+      }
+    }
+    const orderPartners = await selectAllPages<{ odoo_partner_id: number }>((a, b) =>
+      supabase.rpc("order_customer_ids").order("odoo_partner_id").range(a, b),
+    );
+
+    // Customers: everyone with a card, plus everyone attached to an order.
+    const partnerIds = [
+      ...new Set([...cards.map((c) => c.partnerId), ...orderPartners.map((r) => r.odoo_partner_id)]),
+    ];
+    const customers = await readCustomers(partnerIds);
+    await upsertInBatches(
+      supabase,
+      "odoo_customers",
+      customers.map((c) => ({
+        odoo_partner_id: c.id,
+        name: c.name,
+        email: c.email,
+        phone: c.phone,
+        synced_at: now,
+      })),
+      "odoo_partner_id",
+    );
+
+    await upsertInBatches(
+      supabase,
+      "loyalty_programs",
+      programs.map((p) => ({
+        odoo_program_id: p.id,
+        name: p.name,
+        point_name: p.pointName,
+        synced_at: now,
+      })),
+      "odoo_program_id",
+    );
+
+    const knownPartners = new Set(customers.map((c) => c.id));
+    const cardRows = cards
+      .filter((c) => knownPartners.has(c.partnerId))
+      .map((c) => ({
+        odoo_card_id: c.id,
+        odoo_partner_id: c.partnerId,
+        odoo_program_id: c.programId,
+        code: c.code,
+        points: c.points,
+        expiration_date: c.expirationDate,
+        synced_at: now,
+      }));
+    await upsertInBatches(supabase, "loyalty_cards", cardRows, "odoo_card_id");
+    // Anything not touched this run is gone from Odoo (card deleted, or
+    // its programme archived): drop it so its points stop counting.
+    const { error: pruneError } = await supabase
+      .from("loyalty_cards")
+      .delete()
+      .lt("synced_at", now);
+    if (pruneError) throw new Error(`Clearing old loyalty cards failed: ${pruneError.message}`);
+
+    const { data: membersLinked, error: linkError } = await supabase.rpc("link_members_to_odoo");
+    if (linkError) throw new Error(`Matching app members to Odoo failed: ${linkError.message}`);
+
+    await supabase
+      .from("sync_runs")
+      .update({
+        status: "success",
+        finished_at: new Date().toISOString(),
+        orders_synced: cardRows.length,
+      })
+      .eq("id", run.id);
+
+    return {
+      cards: cardRows.length,
+      customers: customers.length,
+      ordersLinked,
+      membersLinked: Number(membersLinked ?? 0),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    await supabase
+      .from("sync_runs")
+      .update({
+        status: "error",
+        finished_at: new Date().toISOString(),
+        error_message: message,
+      })
+      .eq("id", run.id);
     throw error;
   }
 }

@@ -549,3 +549,30 @@ export async function fetchLastSalesSync(admin: SupabaseClient): Promise<SyncSta
   const run = (data ?? []).find((r) => (r.sync_type ?? "sales") === "sales");
   return run ? { status: run.status, startedAt: run.started_at } : null;
 }
+
+export interface CustomerMix {
+  customers: number;
+  returningCustomers: number;
+  newCustomers: number;
+  repeatCustomers: number;
+  ordersWithCustomer: number;
+  ordersTotal: number;
+}
+
+/** New vs returning customers, from POS orders that had a customer attached (migration 0041). */
+export async function fetchCustomerMix(admin: SupabaseClient, w: Window): Promise<Loaded<CustomerMix>> {
+  const res = await rpcOne<Record<string, number>>(admin, "biz_customer_mix", { p_from: w.fromTs, p_to: w.toTs });
+  if (!res.ok) return res;
+  const r = res.data ?? {};
+  return {
+    ok: true,
+    data: {
+      customers: Number(r.customers ?? 0),
+      returningCustomers: Number(r.returning_customers ?? 0),
+      newCustomers: Number(r.new_customers ?? 0),
+      repeatCustomers: Number(r.repeat_customers ?? 0),
+      ordersWithCustomer: Number(r.orders_with_customer ?? 0),
+      ordersTotal: Number(r.orders_total ?? 0),
+    },
+  };
+}

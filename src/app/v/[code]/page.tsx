@@ -3,6 +3,8 @@ import {
   getActiveVenues, getIdrPerPoint, getMemberByCode, getStaffUser,
 } from "@/lib/membership/data";
 import { normalizeMemberCode } from "@/lib/membership/code";
+import { fetchOdooPoints, formatPoints } from "@/lib/membership/directory";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { earnPointsAction, redeemPointsAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +16,7 @@ const RESULTS: Record<string, [string, boolean]> = {
   insufficient: ["Member doesn't have that many points.", false],
   suspended: ["This membership is suspended - no points can be added.", false],
   failed: ["Something went wrong - nothing was saved.", false],
+  odoo: ["This member's points are added by the Odoo till - add them to the sale there instead.", false],
 };
 
 export default async function VerifyPage({
@@ -33,6 +36,8 @@ export default async function VerifyPage({
 
   const venues = valid && !staff ? await getActiveVenues() : [];
   const idrPerPoint = staff ? await getIdrPerPoint() : 0;
+  const linkedToOdoo = Boolean(member?.odoo_partner_id);
+  const odoo = staff && member?.odoo_partner_id ? await fetchOdooPoints(createAdminClient(), member.odoo_partner_id) : null;
 
   const input = "rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base dark:border-zinc-700 dark:bg-zinc-900";
   const button = "rounded-lg bg-zinc-900 px-4 py-3 font-medium text-white dark:bg-zinc-50 dark:text-zinc-900";
@@ -79,11 +84,27 @@ export default async function VerifyPage({
 
           <div className="rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
             <p className="text-sm text-zinc-500">Points balance</p>
-            <p className="text-4xl font-semibold tabular-nums">{member.points_balance.toLocaleString()}</p>
+            <p className="text-4xl font-semibold tabular-nums">
+              {formatPoints((odoo?.points ?? 0) + member.points_balance)}
+            </p>
+            {linkedToOdoo && (
+              <p className="mt-1 text-sm text-zinc-500">
+                {odoo ? `${formatPoints(odoo.points)} in Odoo (${odoo.programs.join(", ") || "loyalty"})` : "No Odoo loyalty card yet"}
+                {member.points_balance > 0 && ` + ${formatPoints(member.points_balance)} added in the app`}
+              </p>
+            )}
           </div>
+
+          {valid && linkedToOdoo && (
+            <p className="rounded-lg bg-zinc-100 p-3 text-sm dark:bg-zinc-900">
+              Linked to this customer in Odoo: points are added automatically when they&apos;re added to the sale at
+              the till, and redeemed there as a reward.
+            </p>
+          )}
 
           {valid && (
             <>
+              {!linkedToOdoo && (
               <form action={earnPointsAction} className="flex flex-col gap-3">
                 <input type="hidden" name="code" value={member.code} />
                 <h2 className="font-medium">Add points for a purchase</h2>
@@ -95,15 +116,18 @@ export default async function VerifyPage({
                 </p>
                 <button className={button}>Add points</button>
               </form>
+              )}
 
+              {(!linkedToOdoo || member.points_balance > 0) && (
               <form action={redeemPointsAction} className="flex flex-col gap-3">
                 <input type="hidden" name="code" value={member.code} />
-                <h2 className="font-medium">Redeem points</h2>
+                <h2 className="font-medium">{linkedToOdoo ? "Redeem points added in the app" : "Redeem points"}</h2>
                 <input name="points" type="number" min={1} step={1} required inputMode="numeric"
                   placeholder="Points to redeem" className={input} />
                 <input name="note" placeholder="What for? (optional)" className={input} />
                 <button className={button}>Redeem</button>
               </form>
+              )}
             </>
           )}
         </div>

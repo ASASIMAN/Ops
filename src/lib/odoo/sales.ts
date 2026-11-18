@@ -205,6 +205,7 @@ export interface OdooPosOrder {
   session_id: [number, string];
   amount_total: number;
   state: string;
+  partner_id: [number, string] | false;
 }
 
 /** Orders in [dateFromIso, dateToIso). Odoo datetimes are UTC. */
@@ -215,7 +216,7 @@ export async function fetchOrders(dateFromIso: string, dateToIso: string) {
       ["date_order", ">=", dateFromIso],
       ["date_order", "<", dateToIso],
     ],
-    ["id", "name", "date_order", "session_id", "amount_total", "state"],
+    ["id", "name", "date_order", "session_id", "amount_total", "state", "partner_id"],
   );
 
   const sessionIds = Array.from(
@@ -239,6 +240,8 @@ export async function fetchOrders(dateFromIso: string, dateToIso: string) {
     storeOdooId: configIdBySession.get(order.session_id[0]) ?? null,
     totalAmount: order.amount_total,
     state: order.state,
+    // The customer attached at the till, if any.
+    partnerOdooId: order.partner_id ? order.partner_id[0] : null,
   }));
 }
 

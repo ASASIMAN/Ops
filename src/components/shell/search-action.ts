@@ -59,6 +59,23 @@ export async function globalSearchAction(rawQuery: string): Promise<SearchHit[]>
 
   if (canAccessModule(role, "membership")) {
     jobs.push(
+      // Odoo loyalty customers, who may never have signed up in the app.
+      admin
+        .from("odoo_customers")
+        .select("odoo_partner_id, name, email")
+        .or(`name.ilike.${like},email.ilike.${like}`)
+        .limit(6)
+        .then(({ data, error }) => {
+          if (error) return; // loyalty tables not set up yet
+          for (const c of data ?? []) {
+            hits.push({
+              group: "Members",
+              label: c.name,
+              detail: "Odoo",
+              href: `/membership?q=${encodeURIComponent(c.email || c.name)}`,
+            });
+          }
+        }),
       admin
         .from("members")
         .select("code, full_name, email")

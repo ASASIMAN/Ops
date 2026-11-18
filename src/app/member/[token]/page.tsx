@@ -7,6 +7,7 @@ import { qrSvg } from "@/lib/membership/qr";
 import { getBaseUrl, verifyUrl } from "@/lib/membership/urls";
 import { appleWalletConfigured } from "@/lib/membership/wallet-apple";
 import { googleWalletConfigured } from "@/lib/membership/wallet-google";
+import { fetchOdooPoints, formatPoints } from "@/lib/membership/directory";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +36,7 @@ export default async function MemberCardPage({
   if (!member) notFound();
 
   const base = await getBaseUrl();
-  const [qr, venues, { data: history }] = await Promise.all([
+  const [qr, venues, { data: history }, odoo] = await Promise.all([
     qrSvg(verifyUrl(base, member.code), { margin: 0 }),
     getActiveVenues(),
     createAdminClient()
@@ -44,6 +45,7 @@ export default async function MemberCardPage({
       .eq("member_id", member.id)
       .order("created_at", { ascending: false })
       .limit(10),
+    member.odoo_partner_id ? fetchOdooPoints(createAdminClient(), member.odoo_partner_id) : Promise.resolve(null),
   ]);
 
   const apple = appleWalletConfigured();
@@ -77,8 +79,11 @@ export default async function MemberCardPage({
       <div className="mt-4 rounded-2xl border border-zinc-200 p-5 dark:border-zinc-800">
         <p className="text-sm text-zinc-500">Points balance</p>
         <p className="text-4xl font-semibold tabular-nums">
-          {member.points_balance.toLocaleString()}
+          {formatPoints((odoo?.points ?? 0) + member.points_balance)}
         </p>
+        {member.odoo_partner_id && (
+          <p className="mt-1 text-sm text-zinc-500">Points from your purchases at ASASI stores are added at the till.</p>
+        )}
       </div>
 
       {(apple || google) && (

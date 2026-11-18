@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runOdooSync, runStockSync } from "@/lib/odoo/sync";
+import { runLoyaltySync, runOdooSync, runStockSync } from "@/lib/odoo/sync";
 
 export const maxDuration = 60;
 
@@ -35,19 +35,26 @@ async function handleSync(request: NextRequest) {
 
   // Sales and stock on hand are synced side by side (independent Odoo
   // reads), so the daily cron keeps both current; one failing doesn't stop
-  // the other. Each records its own row in sync_runs.
+  // the other. Each records its own row in sync_runs. Loyalty runs after
+  // sales, so the orders it links to customers include today's.
   const [sales, stock] = await Promise.allSettled([runOdooSync(days), runStockSync()]);
+  const [loyalty] = await Promise.allSettled([runLoyaltySync()]);
   const errorOf = (r: PromiseSettledResult<unknown>) =>
     r.status === "rejected" ? (r.reason instanceof Error ? r.reason.message : "Unknown error") : null;
 
   if (sales.status === "rejected") {
-    return NextResponse.json({ ok: false, error: errorOf(sales), stockError: errorOf(stock) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: errorOf(sales), stockError: errorOf(stock), loyaltyError: errorOf(loyalty) },
+      { status: 500 },
+    );
   }
   return NextResponse.json({
     ok: true,
     ordersSynced: sales.value.ordersSynced,
     stockRowsSynced: stock.status === "fulfilled" ? stock.value.quantsSynced : null,
     stockError: errorOf(stock),
+    loyalty: loyalty.status === "fulfilled" ? loyalty.value : null,
+    loyaltyError: errorOf(loyalty),
   });
 }
 
