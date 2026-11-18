@@ -1,4 +1,4 @@
-import { executeKw, searchRead } from "./rpc";
+import { allCompaniesContext, executeKw, searchRead } from "./rpc";
 
 // NOTE: field names below match standard Odoo Inventory (v16/17) - same
 // caveat as sales.ts: verify against the live instance once connected.
@@ -80,10 +80,13 @@ export async function fetchStockQuants(
  */
 export async function fetchProductCosts(): Promise<Map<number, number> | null> {
   try {
+    // Same reach as the product sync: every company the API user can see,
+    // archived variants included, so older products get their cost too.
     const rows = await searchRead<{ id: number; standard_price: number }>(
       "product.product",
       [],
       ["id", "standard_price"],
+      { context: await allCompaniesContext({ active_test: false }) },
     );
     return new Map(rows.map((r) => [r.id, Number(r.standard_price) || 0]));
   } catch (error) {
