@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
   title: { default: "ASASI Membership", template: "%s · ASASI Membership" },
-  description: "Your ASASI member card, points and partner perks.",
+  description: "Your ASASI member card, Greyhound points and partner perks.",
   robots: { index: false },
   manifest: "/portal/manifest.webmanifest",
   appleWebApp: { capable: true, title: "ASASI", statusBarStyle: "black-translucent" },

@@ -6,7 +6,7 @@ import { FilterLinks } from "@/components/ui/filter-links";
 import { Stat } from "@/components/ui/stat";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { idr, num } from "@/lib/biz/format";
-import { getStaffUser } from "@/lib/membership/data";
+import { POINTS_NAME, getActiveVenues, getPointValueIdr, getStaffUser } from "@/lib/membership/data";
 import {
   LOYALTY_MIGRATION,
   fetchDirectory,
@@ -19,7 +19,7 @@ import {
 import { appleWalletConfigured } from "@/lib/membership/wallet-apple";
 import { googleWalletConfigured } from "@/lib/membership/wallet-google";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { lookupMemberAction, setMemberStatusAction, syncLoyaltyAction } from "./actions";
+import { lookupMemberAction, setMemberStatusAction, setPointValueAction, syncLoyaltyAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 // The "Sync from Odoo" action reads every loyalty card and customer.
@@ -60,6 +60,7 @@ export default async function MembershipPage({
     linked?: string;
     orders?: string;
     syncError?: string;
+    pointValue?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -74,10 +75,12 @@ export default async function MembershipPage({
   const page = Math.max(1, Number.parseInt(params.page ?? "", 10) || 1);
 
   const admin = createAdminClient();
-  const [directory, summary, syncs] = await Promise.all([
+  const [directory, summary, syncs, pointValue, venues] = await Promise.all([
     fetchDirectory(admin, { search: q, view, sort, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
     fetchSummary(admin),
     fetchLastLoyaltySync(admin),
+    getPointValueIdr(),
+    getActiveVenues(),
   ]);
 
   const keep = {
@@ -162,10 +165,15 @@ export default async function MembershipPage({
               href={href({ view: undefined, page: undefined })}
             />
             <Stat
-              label="Points outstanding"
+              label={`${POINTS_NAME} outstanding`}
               tag="Odoo"
               value={s ? formatPoints(s.odooPoints) : null}
-              note={s && s.appOnlyPoints > 0 ? `Plus ${formatPoints(s.appOnlyPoints)} added in the app` : "Unspent points across every card"}
+              note={[
+                pointValue && s ? `Worth ${idr(s.odooPoints * pointValue)}` : "",
+                s && s.appOnlyPoints > 0 ? `Plus ${formatPoints(s.appOnlyPoints)} added in the app` : pointValue ? "" : "Unspent points across every card",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             />
             <Stat
               label="QR sign-ups"
@@ -178,6 +186,50 @@ export default async function MembershipPage({
               value={s ? num(s.customersWithOrders) : null}
               note="Distinct customers attached to at least one synced POS sale"
             />
+          </div>
+
+          <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            <Card
+              title={`${POINTS_NAME} value`}
+              note="What the members site shows each member's points are worth in rupiah. Leave empty to show points only."
+            >
+              <form action={setPointValueAction} className="flex flex-wrap items-end gap-3 px-5 pb-5">
+                <label className="as-field">
+                  1 Greyhound point = Rp
+                  <input
+                    name="pointValue"
+                    type="number"
+                    min="0"
+                    step="any"
+                    inputMode="decimal"
+                    defaultValue={pointValue ?? ""}
+                    placeholder="Not set"
+                    className="as-input w-40"
+                  />
+                </label>
+                <SubmitButton pendingLabel="Saving…">Save</SubmitButton>
+                {params.pointValue === "saved" && (
+                  <p className="as-notice as-notice-good basis-full">
+                    {pointValue ? `Saved: members now see their points' value at ${idr(pointValue)} a point.` : "Cleared: members see points only."}
+                  </p>
+                )}
+                {params.pointValue && params.pointValue !== "saved" && (
+                  <p className="as-notice as-notice-bad basis-full">
+                    {params.pointValue === "invalid" ? "Enter a rupiah amount above zero, or leave it empty." : `Couldn't save: ${params.pointValue}`}
+                  </p>
+                )}
+              </form>
+            </Card>
+            <Card
+              title="Partner venues"
+              note="Listed with their logo and member offer on the members site."
+              href="/membership/venues"
+              hrefLabel="Manage"
+            >
+              <p className="px-5 pb-5 text-sm">
+                {venues.length === 0 ? "None listed yet." : venues.map((v) => v.name).join(", ")}
+              </p>
+            </Card>
           </div>
 
           <Card className="mt-6" title="Directory" note={`${num(total)} ${total === 1 ? "person" : "people"}${q ? ` matching “${q}”` : ""}`}>

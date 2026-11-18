@@ -32,7 +32,7 @@ export default async function JoinPage({
         <a href={paths.home} className="underline underline-offset-4">
           Enter it here
         </a>{" "}
-        to see your card and points.
+        to see your card and Greyhound points.
       </>
     ),
     failed: "Something went wrong. Please try again.",
@@ -41,7 +41,7 @@ export default async function JoinPage({
   return (
     <PortalFrame homeHref={paths.home}>
       <PortalHeading eyebrow="ASASI Membership" title="Join free">
-        Member discounts at our partner venues, points every time you shop with us, and your card on your phone.
+        Member offers at our partner venues, Greyhound points every time you shop with us, and your card on your phone.
       </PortalHeading>
 
       <form action={joinAction} className="flex flex-col gap-4">

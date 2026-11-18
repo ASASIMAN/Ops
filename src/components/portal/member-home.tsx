@@ -1,5 +1,7 @@
 import { InstallHint } from "@/app/member/[token]/install-hint";
-import { getActiveVenues, shortName, type Member } from "@/lib/membership/data";
+import { PartnerList } from "@/components/portal/partner-list";
+import { idr } from "@/lib/biz/format";
+import { POINTS_NAME, getActiveVenues, getPointValueIdr, shortName, type Member } from "@/lib/membership/data";
 import { fetchOdooPoints, formatPoints } from "@/lib/membership/directory";
 import { qrSvg } from "@/lib/membership/qr";
 import { getBaseUrl, verifyUrl } from "@/lib/membership/urls";
@@ -19,7 +21,7 @@ function freshness(syncedAt: string | null): string {
 
 /**
  * A member's own page: their card and QR (what partner venues scan), their
- * points - refreshed live from the Odoo till when they're an Odoo loyalty
+ * Greyhound points and what they're worth in rupiah - refreshed live from the Odoo till when they're an Odoo loyalty
  * customer - and the partner perks. Anyone who knows a member's email can
  * open this, so it shows first name and last initial only, and no
  * purchase history.
@@ -28,9 +30,10 @@ export async function MemberHome({ member, signOut }: { member: Member; signOut?
   const admin = createAdminClient();
   const partnerId = member.odoo_partner_id ?? null;
 
-  const [base, venues, syncedAt] = await Promise.all([
+  const [base, venues, pointValue, syncedAt] = await Promise.all([
     getBaseUrl(),
     getActiveVenues(),
+    getPointValueIdr(),
     partnerId ? refreshPartnerLoyalty(partnerId).catch(() => null) : Promise.resolve(null),
   ]);
   const [qr, odoo, { data: activity }] = await Promise.all([
@@ -80,8 +83,13 @@ export async function MemberHome({ member, signOut }: { member: Member; signOut?
       </section>
 
       <section className="border border-line bg-surface px-6 py-5 text-center">
-        <p className="text-[0.6875rem] font-medium uppercase tracking-[0.18em] text-muted">Your points</p>
+        <p className="text-[0.6875rem] font-medium uppercase tracking-[0.18em] text-muted">Your {POINTS_NAME}</p>
         <p className="mt-2 text-5xl font-light tabular-nums">{formatPoints(points)}</p>
+        {pointValue && points > 0 && (
+          <p className="mt-2 text-[0.9375rem]">
+            Worth <span className="tabular-nums">{idr(points * pointValue)}</span>
+          </p>
+        )}
         <p className="mt-2 text-xs text-muted">
           {partnerId
             ? [
@@ -90,7 +98,7 @@ export async function MemberHome({ member, signOut }: { member: Member; signOut?
               ]
                 .filter(Boolean)
                 .join(" · ")
-            : "Give the email on your card at the till when you shop, so your purchases earn points."}
+            : `Give the email on your card at the till when you shop, so your purchases earn ${POINTS_NAME}.`}
         </p>
       </section>
 
@@ -111,21 +119,14 @@ export async function MemberHome({ member, signOut }: { member: Member; signOut?
 
       <InstallHint />
 
-      <section>
-        <h2 className="mb-3 text-[0.6875rem] font-medium uppercase tracking-[0.18em] text-muted">Partner perks</h2>
-        {venues.length === 0 ? (
+      {venues.length > 0 ? (
+        <PartnerList venues={venues} title="Partner perks" intro="Show your card at our partners." />
+      ) : (
+        <section>
+          <h2 className="mb-3 text-[0.6875rem] font-medium uppercase tracking-[0.18em] text-muted">Partner perks</h2>
           <p className="text-sm text-muted">Partner venues are coming soon.</p>
-        ) : (
-          <ul className="divide-y divide-line border-y border-line">
-            {venues.map((v) => (
-              <li key={v.id} className="py-3">
-                <p>{v.name}</p>
-                <p className="text-sm text-muted">{v.discount_text}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+        </section>
+      )}
 
       {activity && activity.length > 0 && (
         <section>

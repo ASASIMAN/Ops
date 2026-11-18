@@ -1,6 +1,8 @@
 import { PortalFrame, PortalHeading } from "@/components/portal/frame";
 import { MemberHome } from "@/components/portal/member-home";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { PartnerList } from "@/components/portal/partner-list";
+import { POINTS_NAME, getActiveVenues } from "@/lib/membership/data";
 import { getSignedInMember, portalPaths } from "@/lib/membership/portal";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { lookupAction, signOutAction } from "./actions";
@@ -34,10 +36,11 @@ export default async function PortalPage({ searchParams }: { searchParams: Promi
     );
   }
 
+  const venues = await getActiveVenues();
   return (
     <PortalFrame homeHref={paths.home}>
-      <PortalHeading eyebrow="ASASI Membership" title="Your points">
-        Enter the email you gave us in store to see your points and your member card.
+      <PortalHeading eyebrow="ASASI Membership" title={POINTS_NAME}>
+        Enter the email you gave us in store to see your {POINTS_NAME} and your member card.
       </PortalHeading>
       <form action={lookupAction} className="flex flex-col gap-4">
         <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden className="hidden" />
@@ -58,6 +61,11 @@ export default async function PortalPage({ searchParams }: { searchParams: Promi
           Show my card
         </SubmitButton>
       </form>
+      {venues.length > 0 && (
+        <div className="mt-10">
+          <PartnerList venues={venues} title="Our partners" intro="Members show their card at these partners." />
+        </div>
+      )}
       <p className="mt-10 border-t border-line pt-6 text-center text-sm text-muted">
         Not a member yet? Join at any ASASI store - it&apos;s free.
       </p>

@@ -875,10 +875,18 @@ there is nothing separate to build or host.
   by signed-in staff (the in-app scanner) stays in the staff app, with the
   add-points / redeem controls.
 
+- Points are called **Greyhound points** (`POINTS_NAME` in
+  `src/lib/membership/data.ts`). Their rupiah value is set on the Members
+  page ("1 Greyhound point = Rp ...", stored in `assumptions` as
+  `membership_point_value_idr`); until it's set, members see points only.
+- Partner venues (Members -> Partner venues) are listed on the members site
+  with their logo and member offer. Logos are uploaded there, shrunk to fit
+  256px and kept in the row as a small WebP; the offer is optional.
+
 Setup:
 
 1. Apply `supabase/migrations/0042_member_portal.sql`, then
-   `0043_member_email_lookup.sql`.
+   `0043_member_email_lookup.sql` and `0044_partner_logos.sql` (adds SOMA).
 2. Vercel -> project -> Settings -> Domains: add `members.studioasasi.com`,
    then add the CNAME record Vercel shows at the studioasasi.com DNS host.
 3. Website nav: link to `https://members.studioasasi.com`.

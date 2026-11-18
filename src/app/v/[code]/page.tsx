@@ -1,7 +1,9 @@
 import { PortalFrame } from "@/components/portal/frame";
+import { PartnerList } from "@/components/portal/partner-list";
+import { idr } from "@/lib/biz/format";
 import { portalPaths } from "@/lib/membership/portal";
 import {
-  getActiveVenues, getIdrPerPoint, getMemberByCode, getStaffUser, shortName,
+  POINTS_NAME, getActiveVenues, getIdrPerPoint, getMemberByCode, getPointValueIdr, getStaffUser, shortName,
 } from "@/lib/membership/data";
 import { normalizeMemberCode } from "@/lib/membership/code";
 import { fetchOdooPoints, formatPoints } from "@/lib/membership/directory";
@@ -34,7 +36,7 @@ export default async function VerifyPage({
   const valid = member?.status === "active";
 
   const venues = valid && !staff ? await getActiveVenues() : [];
-  const idrPerPoint = staff ? await getIdrPerPoint() : 0;
+  const [idrPerPoint, pointValue] = staff ? await Promise.all([getIdrPerPoint(), getPointValueIdr()]) : [0, null];
   const linkedToOdoo = Boolean(member?.odoo_partner_id);
   const odoo = staff && member?.odoo_partner_id ? await fetchOdooPoints(createAdminClient(), member.odoo_partner_id) : null;
 
@@ -70,16 +72,9 @@ export default async function VerifyPage({
       </div>
 
       {!staff && valid && venues.length > 0 && (
-        <>
-          <h2 className="mb-3 mt-8 text-[0.6875rem] font-medium uppercase tracking-[0.18em] text-muted">Member discount</h2>
-          <ul className="divide-y divide-line border-y border-line">
-            {venues.map((v) => (
-              <li key={v.id} className="py-3 text-sm">
-                {v.name} <span className="text-muted">- {v.discount_text}</span>
-              </li>
-            ))}
-          </ul>
-        </>
+        <div className="mt-8">
+          <PartnerList venues={venues} title="Member offers" />
+        </div>
       )}
 
       {staff && member && (
@@ -94,10 +89,13 @@ export default async function VerifyPage({
           )}
 
           <div className="border border-line bg-surface p-5">
-            <p className="text-[0.6875rem] font-medium uppercase tracking-[0.18em] text-muted">Points balance</p>
+            <p className="text-[0.6875rem] font-medium uppercase tracking-[0.18em] text-muted">{POINTS_NAME}</p>
             <p className="mt-1 text-4xl font-light tabular-nums">
               {formatPoints((odoo?.points ?? 0) + member.points_balance)}
             </p>
+            {pointValue && (odoo?.points ?? 0) + member.points_balance > 0 && (
+              <p className="mt-1 text-sm">Worth {idr(((odoo?.points ?? 0) + member.points_balance) * pointValue)}</p>
+            )}
             {linkedToOdoo && (
               <p className="mt-1 text-sm text-muted">
                 {odoo ? `${formatPoints(odoo.points)} in Odoo (${odoo.programs.join(", ") || "loyalty"})` : "No Odoo loyalty card yet"}

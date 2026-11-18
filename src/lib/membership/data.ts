@@ -28,7 +28,10 @@ export interface Member {
 export interface PartnerVenue {
   id: number;
   name: string;
-  discount_text: string;
+  /** What members get, e.g. "10% off the bill" - empty until agreed. */
+  discount_text: string | null;
+  /** Small square logo as a data: URL (migration 0044). */
+  logo: string | null;
   notes: string | null;
   active: boolean;
   sort_order: number;
@@ -60,6 +63,19 @@ export async function getIdrPerPoint(): Promise<number> {
   const { data } = await createAdminClient()
     .from("assumptions").select("value").eq("key", "membership_idr_per_point").maybeSingle();
   return Number(data?.value) > 0 ? Number(data!.value) : 10000;
+}
+
+/** What members call their points. */
+export const POINTS_NAME = "Greyhound points";
+
+/** assumptions key: the rupiah value of 1 Greyhound point, set on the Members page. */
+export const POINT_VALUE_KEY = "membership_point_value_idr";
+
+/** What 1 Greyhound point is worth in rupiah - null until staff set it (never guessed). */
+export async function getPointValueIdr(): Promise<number | null> {
+  const { data } = await createAdminClient().from("assumptions").select("value").eq("key", POINT_VALUE_KEY).maybeSingle();
+  const value = Number(data?.value);
+  return value > 0 ? value : null;
 }
 
 /** The signed-in staff user, if they hold a role allowed to run the till tools. */
