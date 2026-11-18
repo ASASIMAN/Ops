@@ -38,6 +38,7 @@ import {
 import { niceStep, smoothPath, smoothBandPath, type Point } from "@/lib/viz/chart-utils";
 import { ChartHover, type HoverSlot } from "./chart-hover";
 import { syncStockNowAction } from "./overview/actions";
+import { LoadSalesHistory } from "./load-history";
 import "./dash.css";
 import { SubmitButton } from "@/components/ui/submit-button";
 
@@ -459,6 +460,12 @@ export default async function ForecastChartPage({
 
   // --- Planner (primary product only) ---
   const planStockLevels = await fetchStockLevels(supabase, primaryVariants.map((v) => v.productId));
+  const { data: earliestOrder } = await supabase
+    .from("orders")
+    .select("order_date")
+    .order("order_date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
   const { data: lastStockSync } = await supabase
     .from("sync_runs")
     .select("status, started_at, error_message")
@@ -780,6 +787,7 @@ export default async function ForecastChartPage({
             Also runs automatically every day with the sales sync.
           </span>
         </form>
+        <LoadSalesHistory defaultFromMonth="2025-11" earliestSynced={earliestOrder?.order_date ?? null} />
         {lastStockSync?.status === "error" && (
           <AssumptionNote bad>Last stock sync failed: {lastStockSync.error_message ?? "unknown error"}. Stock on hand below may be out of date.</AssumptionNote>
         )}
