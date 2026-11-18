@@ -462,6 +462,25 @@ product/location pairs Odoo no longer reports. It runs from the "Sync
 stock from Odoo" button on `/forecast` and with the daily sales cron
 (`/api/sync/odoo`).
 
+**Sales from before the company-profile change.** Odoo only returns a
+user's *current* company unless the request says otherwise, so sales,
+products and POS configs recorded under ASASI's old company profile were
+never synced - history started when the new profile did (July 2026). The
+sales sync now reads every company the Odoo API user belongs to
+(`allCompaniesContext` in `src/lib/odoo/rpc.ts`, from the user's
+`company_ids`) and includes archived products and POS configs. A newly
+seen POS config whose name matches a live store (ignoring case, spaces
+and punctuation - "ASASI Pererenan" = "ASASI. PERERENAN") is added
+inactive, and orders on any inactive, slug-less config with exactly one
+such match are stored against the live store. To load the history, use
+**Load sales history from Odoo** under the stat tiles on `/forecast`
+(defaults to Nov 2025; 14-day windows from the browser, keep the page
+open; safe to re-run). It ends with orders found per month - if months
+before July still come back as 0, the API user isn't a member of the
+old company in Odoo (Settings > Users > Allowed Companies), or Odoo has
+no POS orders for them. Products the old company re-created under new
+template ids show up as "Name (#id)" until added to `style_merges`.
+
 The forecasting module's main screen: a filter row (product type-ahead,
 colour/size/store, an optional "+ Compare" second product, Past/Next
 range), one chart, and a collapsed-by-default PO planner panel below it.
