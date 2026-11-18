@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PortalFrame } from "@/components/portal/frame";
 import { MemberHome } from "@/components/portal/member-home";
-import { portalPaths } from "@/lib/membership/portal";
 import { getMemberByToken } from "@/lib/membership/data";
 
 export const dynamic = "force-dynamic";
@@ -27,10 +26,10 @@ export default async function MemberCardPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const [member, paths] = await Promise.all([getMemberByToken(token), portalPaths()]);
+  const member = await getMemberByToken(token);
   if (!member) notFound();
   return (
-    <PortalFrame homeHref={paths.home}>
+    <PortalFrame>
       <MemberHome member={member} />
     </PortalFrame>
   );

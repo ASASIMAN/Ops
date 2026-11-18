@@ -1,7 +1,6 @@
 import { PortalFrame } from "@/components/portal/frame";
 import { PartnerList } from "@/components/portal/partner-list";
 import { idr } from "@/lib/biz/format";
-import { portalPaths } from "@/lib/membership/portal";
 import {
   POINTS_NAME, getActiveVenues, getIdrPerPoint, getMemberByCode, getPointValueIdr, getStaffUser, shortName,
 } from "@/lib/membership/data";
@@ -31,7 +30,7 @@ export default async function VerifyPage({
 }) {
   const code = normalizeMemberCode((await params).code);
   const { result, points } = await searchParams;
-  const [member, staff, paths] = await Promise.all([getMemberByCode(code), getStaffUser(), portalPaths()]);
+  const [member, staff] = await Promise.all([getMemberByCode(code), getStaffUser()]);
 
   const valid = member?.status === "active";
 
@@ -53,7 +52,7 @@ export default async function VerifyPage({
   }).format(new Date());
 
   return (
-    <PortalFrame homeHref={staff ? "/membership" : paths.home}>
+    <PortalFrame logoHref={staff ? "/membership" : undefined}>
       <div className={`px-6 py-8 text-center ${valid ? "bg-brand text-white" : "border border-line-strong bg-surface"}`}>
         <p className="text-5xl font-light" aria-hidden>
           {valid ? "✓" : "✕"}

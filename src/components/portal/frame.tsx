@@ -5,12 +5,19 @@ import { AsasiLogo } from "@/components/brand/asasi-logo";
  * website's olive header with the wordmark, then a single phone-width
  * column. Light only, square edges, like studioasasi.com.
  */
-export function PortalFrame({ children, homeHref = "/" }: { children: React.ReactNode; homeHref?: string }) {
+export function PortalFrame({
+  children,
+  logoHref = "https://studioasasi.com",
+}: {
+  children: React.ReactNode;
+  /** Where the header logo goes: the ASASI website, unless a page says otherwise. */
+  logoHref?: string;
+}) {
   return (
     <div className="min-h-screen bg-page text-ink">
       <header className="bg-brand text-white">
         <div className="mx-auto flex h-16 max-w-md items-center justify-center px-5">
-          <a href={homeHref} aria-label="ASASI membership home">
+          <a href={logoHref} aria-label={logoHref.startsWith("http") ? "ASASI website" : "Back to Members"}>
             <AsasiLogo className="h-6" />
           </a>
         </div>

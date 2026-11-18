@@ -39,7 +39,7 @@ export default async function JoinPage({
   };
 
   return (
-    <PortalFrame homeHref={paths.home}>
+    <PortalFrame>
       <PortalHeading eyebrow="ASASI Membership" title="Join free">
         Member offers at our partner venues, Greyhound points every time you shop with us, and your card on your phone.
       </PortalHeading>

@@ -3,7 +3,7 @@ import { MemberHome } from "@/components/portal/member-home";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { PartnerList } from "@/components/portal/partner-list";
 import { POINTS_NAME, getActiveVenues } from "@/lib/membership/data";
-import { getSignedInMember, portalPaths } from "@/lib/membership/portal";
+import { getSignedInMember } from "@/lib/membership/portal";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { lookupAction, signOutAction } from "./actions";
 
@@ -18,12 +18,12 @@ const ERRORS: Record<string, string> = {
 };
 
 export default async function PortalPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
-  const [{ error }, member, paths] = await Promise.all([searchParams, getSignedInMember(), portalPaths()]);
+  const [{ error }, member] = await Promise.all([searchParams, getSignedInMember()]);
 
   if (member) {
     await createAdminClient().from("members").update({ last_seen_at: new Date().toISOString() }).eq("id", member.id);
     return (
-      <PortalFrame homeHref={paths.home}>
+      <PortalFrame>
         <MemberHome
           member={member}
           signOut={
@@ -38,7 +38,7 @@ export default async function PortalPage({ searchParams }: { searchParams: Promi
 
   const venues = await getActiveVenues();
   return (
-    <PortalFrame homeHref={paths.home}>
+    <PortalFrame>
       <PortalHeading eyebrow="ASASI Membership" title={POINTS_NAME}>
         Enter the email you gave us in store to see your {POINTS_NAME} and your member card.
       </PortalHeading>
