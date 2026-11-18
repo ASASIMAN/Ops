@@ -51,7 +51,7 @@ export default async function VerifyPage({
   }).format(new Date());
 
   return (
-    <PortalFrame homeHref={paths.home}>
+    <PortalFrame homeHref={staff ? "/membership" : paths.home}>
       <div className={`px-6 py-8 text-center ${valid ? "bg-brand text-white" : "border border-line-strong bg-surface"}`}>
         <p className="text-5xl font-light" aria-hidden>
           {valid ? "✓" : "✕"}

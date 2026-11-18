@@ -2,6 +2,9 @@ import { cookies, headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateMemberCode, MEMBER_COOKIE } from "./code";
 import { getMemberByToken, type Member } from "./data";
+import { isMembersHost } from "./host";
+
+export { isMembersHost };
 
 /**
  * The members portal: a member types their email and sees their card, QR
@@ -19,14 +22,6 @@ const WINDOW_MS = 15 * 60 * 1000;
 /** Email lookups per network address per 15 minutes - plenty for a family, too few to read through a list. */
 const MAX_LOOKUPS_PER_IP = 30;
 const REMEMBER_DAYS = 365;
-
-/** members.studioasasi.com, or whatever MEMBERS_HOST is set to. */
-export function isMembersHost(host: string | null | undefined): boolean {
-  if (!host) return false;
-  const h = host.toLowerCase().split(":")[0];
-  const configured = process.env.MEMBERS_HOST?.toLowerCase().trim();
-  return configured ? h === configured : h.startsWith("members.");
-}
 
 /** Links inside the portal: the members host serves it at the root, the main app under /portal. */
 export async function portalPaths(): Promise<{ home: string }> {

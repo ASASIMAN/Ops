@@ -799,8 +799,7 @@ routes (no login): `/join`, `/member/<token>`, `/v/<code>`, and the members
 portal at `/portal` (see "Members portal" below).
 
 1. Apply `supabase/migrations/0039_membership.sql`.
-2. Set `MEMBERSHIP_BASE_URL` to the live domain, then print `/membership/tent-card`
-   (the QR points at `/join`).
+2. Print `/membership/tent-card` (its QR opens `https://members.studioasasi.com/join`).
 3. Optional wallet buttons appear once their env vars are set (see `.env.example`):
    Google Wallet (issuer ID + service account) and Apple Wallet (Apple Developer
    Pass Type ID + signing cert). Without them, members still get a web card
@@ -868,6 +867,13 @@ there is nothing separate to build or host.
   address and time, not the email).
 - The member is remembered on that phone for a year ("Not you? Use a
   different email" clears it).
+- Every QR code, wallet pass and tent card points at the members site
+  (`src/lib/membership/host.ts`; `MEMBERS_HOST` overrides the address). On
+  any other address - the staff app or the old vercel.app one - the member
+  pages (`/v`, `/join`, `/member`, `/portal`) redirect there, so old QR
+  codes land on the members site too. The one exception: a QR check opened
+  by signed-in staff (the in-app scanner) stays in the staff app, with the
+  add-points / redeem controls.
 
 Setup:
 
@@ -875,7 +881,4 @@ Setup:
    `0043_member_email_lookup.sql`.
 2. Vercel -> project -> Settings -> Domains: add `members.studioasasi.com`,
    then add the CNAME record Vercel shows at the studioasasi.com DNS host.
-3. Set `MEMBERSHIP_BASE_URL=https://members.studioasasi.com` so new QR codes
-   and wallet passes point at the members address, then redeploy. Codes
-   already printed or saved keep working.
-4. Website nav: link to `https://members.studioasasi.com`.
+3. Website nav: link to `https://members.studioasasi.com`.

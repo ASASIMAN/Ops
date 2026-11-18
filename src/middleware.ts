@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isMembersHost, membersSiteOrigin } from "@/lib/membership/host";
 
 const PUBLIC_PATHS = ["/login", "/setup"];
 // Member-facing pages (QR sign-up, member card, scan/verify, members
@@ -14,11 +15,11 @@ const MEMBERS_HOST_SEGMENTS = new Set(["portal", "join", "member", "v", "brand",
 // The portal is served at the root of the members host.
 const MEMBERS_HOST_REWRITES: Record<string, string> = { "/": "/portal" };
 
-function isMembersHost(host: string | null): boolean {
-  if (!host) return false;
-  const h = host.toLowerCase().split(":")[0];
-  const configured = process.env.MEMBERS_HOST?.toLowerCase().trim();
-  return configured ? h === configured : h.startsWith("members.");
+/** The same page on the members site (/portal is its home page there). */
+function toMembersSite(request: NextRequest): URL {
+  const { pathname, search } = request.nextUrl;
+  const path = pathname === "/portal" ? "/" : pathname;
+  return new URL(path + search, membersSiteOrigin());
 }
 
 export async function middleware(request: NextRequest) {
@@ -34,6 +35,16 @@ export async function middleware(request: NextRequest) {
     if (MEMBERS_HOST_SEGMENTS.has(pathname.split("/")[1])) return NextResponse.next();
     // Anything of the staff app (login, dashboard, ...) - send to the portal.
     return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  // Member-facing pages on any other address (the staff app, the old
+  // vercel.app address, old QR codes and wallet passes) move to the members
+  // site - except a QR check opened by signed-in staff (the in-app scanner),
+  // who get the add-points / redeem controls here.
+  const segment = request.nextUrl.pathname.split("/")[1];
+  const memberFacing = PUBLIC_SEGMENTS.includes(segment);
+  if (memberFacing && segment !== "v" && process.env.NODE_ENV === "production") {
+    return NextResponse.redirect(toMembersSite(request));
   }
 
   let response = NextResponse.next({ request });
@@ -64,6 +75,10 @@ export async function middleware(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  if (segment === "v" && !user && process.env.NODE_ENV === "production") {
+    return NextResponse.redirect(toMembersSite(request));
+  }
 
   const isPublic =
     PUBLIC_PATHS.some((path) => request.nextUrl.pathname.startsWith(path)) ||

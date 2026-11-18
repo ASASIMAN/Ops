@@ -12,7 +12,6 @@ export default async function TentCardPage() {
   const base = await getBaseUrl();
   const joinUrl = `${base}/join?src=tent`;
   const qr = await qrSvg(joinUrl, { margin: 0 });
-  const usingFallback = !process.env.MEMBERSHIP_BASE_URL;
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8 print:max-w-none print:p-0">
@@ -22,13 +21,9 @@ export default async function TentCardPage() {
           Prints on A5 landscape. Fold in half for a tent: the top half prints
           upside-down so both sides read correctly.
         </p>
-        {usingFallback && (
-          <p className="mt-3 rounded bg-amber-100 p-3 text-sm text-amber-900">
-            <b>Before printing:</b> this QR points to <code>{base}</code>, taken from the current
-            address. Set <code>MEMBERSHIP_BASE_URL</code> to your live domain and reload, otherwise
-            the printed cards will point at the wrong place.
-          </p>
-        )}
+        <p className="mt-3 text-sm text-zinc-500">
+          The QR opens <code>{joinUrl}</code>.
+        </p>
         <div className="mt-4"><PrintButton /></div>
       </div>
 
