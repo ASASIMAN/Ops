@@ -60,6 +60,11 @@ async function upsertInBatches(
   }
 }
 
+/** "ASASI. PERERENAN" and "ASASI Pererenan" -> "asasipererenan". */
+function storeNameKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 /**
  * Syncs orders in [dateFrom, dateTo). The catalogue (stores, categories,
  * products) is refreshed too unless `refreshCatalog` is false - a multi-chunk
@@ -81,10 +86,45 @@ export async function runOdooSyncRange(
   try {
     if (refreshCatalog) {
       const stores = await fetchStores();
-      await supabase.from("stores").upsert(
-        stores.map((s) => ({ odoo_pos_config_id: s.id, name: s.name })),
+      const existing = await selectAllPages<{
+        odoo_pos_config_id: number | null;
+        name: string;
+        active: boolean;
+      }>((a, b) =>
+        supabase
+          .from("stores")
+          .select("odoo_pos_config_id, name, active")
+          .order("id")
+          .range(a, b),
+      );
+      const known = new Set(existing.map((r) => r.odoo_pos_config_id));
+      const activeNames = new Set(
+        existing.filter((r) => r.active).map((r) => storeNameKey(r.name)),
+      );
+      // Known configs: refresh the name only (active/slug are set in the app).
+      const { error: knownError } = await supabase.from("stores").upsert(
+        stores
+          .filter((s) => known.has(s.id))
+          .map((s) => ({ odoo_pos_config_id: s.id, name: s.name })),
         { onConflict: "odoo_pos_config_id" },
       );
+      if (knownError) throw new Error(`Upsert into stores failed: ${knownError.message}`);
+      // New configs: one that is another POS config for a store already
+      // listed (same name - e.g. the old company's "ASASI Pererenan" next to
+      // "ASASI. PERERENAN") comes in inactive, so it adds no duplicate to
+      // the store filters; its orders are moved onto that store below. A
+      // config archived in Odoo comes in inactive too.
+      const fresh = stores.filter((s) => !known.has(s.id));
+      if (fresh.length) {
+        const { error } = await supabase.from("stores").insert(
+          fresh.map((s) => ({
+            odoo_pos_config_id: s.id,
+            name: s.name,
+            active: s.active && !activeNames.has(storeNameKey(s.name)),
+          })),
+        );
+        if (error) throw new Error(`Insert into stores failed: ${error.message}`);
+      }
 
       const categories = await fetchCategories();
       await supabase.from("product_categories").upsert(
@@ -100,16 +140,37 @@ export async function runOdooSyncRange(
     const storeRows = await selectAllPages<{
       id: number;
       odoo_pos_config_id: number;
+      name: string;
+      active: boolean;
+      slug: string | null;
     }>((a, b) =>
-      supabase.from("stores").select("id, odoo_pos_config_id").range(a, b),
+      supabase
+        .from("stores")
+        .select("id, odoo_pos_config_id, name, active, slug")
+        .order("id")
+        .range(a, b),
     );
     const categoryRows = await selectAllPages<{ id: number; odoo_id: number }>(
       (a, b) =>
         supabase.from("product_categories").select("id, odoo_id").range(a, b),
     );
 
+    // An inactive config without a slug whose name matches exactly one live
+    // store (ignoring case, spaces and punctuation) is an old or duplicate
+    // POS config for that store - its orders count toward the live store,
+    // so per-store views include sales from before the company change.
+    const liveStoreIdsByName = new Map<string, number[]>();
+    for (const s of storeRows) {
+      if (!s.active) continue;
+      const key = storeNameKey(s.name);
+      liveStoreIdsByName.set(key, [...(liveStoreIdsByName.get(key) ?? []), s.id]);
+    }
     const storeIdByOdooId = new Map(
-      storeRows.map((s) => [s.odoo_pos_config_id, s.id]),
+      storeRows.map((s) => {
+        const live = liveStoreIdsByName.get(storeNameKey(s.name));
+        const target = !s.active && !s.slug && live?.length === 1 ? live[0] : s.id;
+        return [s.odoo_pos_config_id, target];
+      }),
     );
     const categoryIdByOdooId = new Map(
       categoryRows.map((c) => [c.odoo_id, c.id]),

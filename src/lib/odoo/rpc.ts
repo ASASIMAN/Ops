@@ -111,12 +111,47 @@ export async function executeKw<T>(
   ]);
 }
 
+let cachedCompanyIds: number[] | null = null;
+
+/**
+ * An Odoo call only sees records of the user's *current* company unless the
+ * context lists more. ASASI changed its company profile in Odoo, so sales and
+ * products from before the change sit under the old company and were never
+ * read. This context opens every company the API user is allowed into
+ * (their `company_ids`); access is still Odoo's to grant, so a company the
+ * user isn't a member of stays out. Pass `{ active_test: false }` as `extra`
+ * to include archived records too.
+ */
+export async function allCompaniesContext(
+  extra: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
+  if (cachedCompanyIds === null) {
+    const config = getConfig();
+    const uid = await getUid(config);
+    const [user] = await executeKw<{ company_ids: number[] }[]>(
+      "res.users",
+      "read",
+      [[uid]],
+      { fields: ["company_ids"] },
+    );
+    cachedCompanyIds = user?.company_ids ?? [];
+  }
+  return cachedCompanyIds.length
+    ? { allowed_company_ids: cachedCompanyIds, ...extra }
+    : { ...extra };
+}
+
 /** Convenience wrapper around the common search_read pattern. */
 export async function searchRead<T>(
   model: string,
   domain: unknown[],
   fields: string[],
-  options: { limit?: number; offset?: number; order?: string } = {},
+  options: {
+    limit?: number;
+    offset?: number;
+    order?: string;
+    context?: Record<string, unknown>;
+  } = {},
 ): Promise<T[]> {
   return executeKw<T[]>(model, "search_read", [domain], {
     fields,

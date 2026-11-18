@@ -1,4 +1,4 @@
-import { executeKw, searchRead } from "./rpc";
+import { allCompaniesContext, executeKw, searchRead } from "./rpc";
 
 // NOTE: field names below match standard Odoo POS (v16/17). If your instance
 // customizes the POS or product model, these may need adjusting - that's
@@ -8,10 +8,15 @@ import { executeKw, searchRead } from "./rpc";
 export interface OdooStore {
   id: number;
   name: string;
+  active: boolean;
 }
 
 export async function fetchStores(): Promise<OdooStore[]> {
-  return searchRead<OdooStore>("pos.config", [], ["id", "name"]);
+  // Archived configs too: orders from before the company-profile change
+  // point at POS configs that may since have been archived.
+  return searchRead<OdooStore>("pos.config", [], ["id", "name", "active"], {
+    context: await allCompaniesContext({ active_test: false }),
+  });
 }
 
 export interface OdooCategory {
@@ -21,11 +26,12 @@ export interface OdooCategory {
 }
 
 export async function fetchCategories(): Promise<OdooCategory[]> {
-  return searchRead<OdooCategory>("product.category", [], [
-    "id",
-    "name",
-    "parent_id",
-  ]);
+  return searchRead<OdooCategory>(
+    "product.category",
+    [],
+    ["id", "name", "parent_id"],
+    { context: await allCompaniesContext() },
+  );
 }
 
 export interface OdooProductVariant {
@@ -130,6 +136,9 @@ export async function fetchProducts() {
       "categ_id",
       "product_template_attribute_value_ids",
     ],
+    // Archived variants and the old company's products included, so an old
+    // sale's order line still finds its product.
+    { context: await allCompaniesContext({ active_test: false }) },
   );
 
   const attributeValueIds = Array.from(
@@ -141,7 +150,10 @@ export async function fetchProducts() {
         "product.template.attribute.value",
         "read",
         [attributeValueIds],
-        { fields: ["id", "name", "attribute_id"] },
+        {
+          fields: ["id", "name", "attribute_id"],
+          context: await allCompaniesContext({ active_test: false }),
+        },
       )
     : [];
 
@@ -217,6 +229,7 @@ export async function fetchOrders(dateFromIso: string, dateToIso: string) {
       ["date_order", "<", dateToIso],
     ],
     ["id", "name", "date_order", "session_id", "amount_total", "state", "partner_id"],
+    { context: await allCompaniesContext() },
   );
 
   const sessionIds = Array.from(
@@ -226,6 +239,7 @@ export async function fetchOrders(dateFromIso: string, dateToIso: string) {
   const sessions = sessionIds.length
     ? await executeKw<OdooPosSession[]>("pos.session", "read", [sessionIds], {
         fields: ["id", "config_id"],
+        context: await allCompaniesContext(),
       })
     : [];
 
@@ -251,7 +265,7 @@ export async function fetchEarliestOrderDate(): Promise<Date | null> {
     "pos.order",
     [],
     ["date_order"],
-    { limit: 1, order: "date_order asc" },
+    { limit: 1, order: "date_order asc", context: await allCompaniesContext() },
   );
   // Odoo datetimes are "YYYY-MM-DD HH:MM:SS" in UTC with no zone marker.
   return first ? new Date(`${first.date_order.replace(" ", "T")}Z`) : null;
@@ -282,6 +296,7 @@ export async function fetchOrderLines(orderIds: number[]) {
       "discount",
       "price_subtotal",
     ],
+    { context: await allCompaniesContext() },
   );
 
   return lines.map((line) => ({
