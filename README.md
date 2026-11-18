@@ -472,7 +472,19 @@ sales sync now reads every company the Odoo API user belongs to
 seen POS config whose name matches a live store (ignoring case, spaces
 and punctuation - "ASASI Pererenan" = "ASASI. PERERENAN") is added
 inactive, and orders on any inactive, slug-less config with exactly one
-such match are stored against the live store. To load the history, use
+such match are stored against the live store.
+
+**Store merges (migration 0047).** Each store's POS configs are merged
+explicitly: `stores.merged_into_store_id` points every other config of
+Pererenan, Canggu, Nusa Dua and Ubud (e.g. the old company's "ASASI
+Pererenan") at the live row ("ASASI. PERERENAN"). The migration sets it
+for every slug-less row whose name, with case, spaces and punctuation
+ignored, contains the live store's slug, deactivates those rows, and
+moves their existing orders onto the live store. The sync stores any
+later order for a merged config against the live store, and links a
+newly seen config the same way when it is inserted. Run
+`0047_store_merges.sql` in the Supabase SQL editor; until then the sync
+applies the name rule on its own. To load the history, use
 **Load sales history from Odoo** under the stat tiles on `/forecast`
 (defaults to Nov 2025; 14-day windows from the browser, keep the page
 open; safe to re-run). It ends with orders found per month - if months
