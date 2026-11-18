@@ -28,9 +28,9 @@ export const metadata: Metadata = { title: "Members" };
 
 const PAGE_SIZE = 50;
 const VIEWS: { value: DirectoryView; label: string }[] = [
-  { value: "linked", label: "In Odoo & app" },
-  { value: "odoo_only", label: "Odoo only" },
-  { value: "app_only", label: "App only" },
+  { value: "linked", label: "Odoo + QR sign-up" },
+  { value: "odoo_only", label: "From Odoo" },
+  { value: "app_only", label: "QR sign-up only" },
 ];
 const SORTS: { value: DirectorySort; label: string }[] = [
   { value: "points", label: "Most points" },
@@ -155,7 +155,7 @@ export default async function MembershipPage({
               note={s && s.appOnlyPoints > 0 ? `Plus ${formatPoints(s.appOnlyPoints)} added in the app` : "Unspent points across every card"}
             />
             <Stat
-              label="App sign-ups"
+              label="QR sign-ups"
               value={s ? num(s.appMembers) : null}
               note={s ? `${num(s.linkedMembers)} matched to their Odoo customer` : undefined}
               href={href({ view: "app_only", page: undefined })}
@@ -234,14 +234,12 @@ export default async function MembershipPage({
                                   {r.memberCode}
                                 </Link>
                               ) : (
-                                <span className="text-faint">Not signed up</span>
+                                <span>Signed up from Odoo</span>
                               )}
                               <span className="block text-xs text-muted">
-                                {r.memberCode && r.odooPartnerId === null
-                                  ? "Not found in Odoo"
-                                  : r.joinedAppAt
-                                    ? `Joined ${DATE.format(new Date(r.joinedAppAt))}`
-                                    : ""}
+                                {r.memberCode
+                                  ? `QR sign-up${r.joinedAppAt ? `, ${DATE.format(new Date(r.joinedAppAt))}` : ""}${r.odooPartnerId === null ? " · not found in Odoo" : ""}`
+                                  : ""}
                               </span>
                             </td>
                             {/* No sale with this customer attached isn't the same as "never bought". */}
