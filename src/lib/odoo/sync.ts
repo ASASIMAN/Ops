@@ -8,7 +8,7 @@ import {
 } from "./sales";
 import {
   fetchStockLocations,
-  fetchProductCosts,
+  fetchProductCosts, fetchProductPosFlags,
   fetchStockQuants,
   TRACKED_STOCK_LOCATIONS,
 } from "./stock";
@@ -219,6 +219,7 @@ export async function runOdooSyncRange(
         })),
         "odoo_product_id",
       );
+      await saveProductPosFlags(supabase);
     }
 
     const productRows = await selectAllPages<{
@@ -461,6 +462,7 @@ export async function runStockSync() {
     // not be run yet, or Odoo may not expose them to this API user.
     const lotAgesSynced = await saveStockLotAges(supabase, quants, productIdByOdooId, locationIdByOdooId, syncedAt);
     const costsUpdated = await saveProductCosts(supabase);
+    await saveProductPosFlags(supabase);
 
     await supabase
       .from("sync_runs")
@@ -527,6 +529,27 @@ async function saveStockLotAges(
 }
 
 /** Cost prices onto products. Returns how many changed; 0 when unreadable or migration 0046 isn't run. */
+/**
+ * Copies each product's "Available in POS" flag and archived state from
+ * Odoo (migration 0048), so product pickers can list only what's sold in
+ * the POS. Not fatal: skipped until the migration is run, or if Odoo won't
+ * return the fields.
+ */
+async function saveProductPosFlags(supabase: ReturnType<typeof createAdminClient>): Promise<number> {
+  const probe = await supabase.from("products").select("available_in_pos").limit(1);
+  if (probe.error) return 0;
+  const flags = await fetchProductPosFlags();
+  if (!flags?.size) return 0;
+  const { data, error } = await supabase.rpc("set_product_pos_flags", {
+    p_flags: [...flags].map(([id, f]) => ({ id, pos: f.pos, active: f.active })),
+  });
+  if (error) {
+    console.error("[sync] POS availability not saved:", error.message);
+    return 0;
+  }
+  return Number(data) || 0;
+}
+
 async function saveProductCosts(supabase: ReturnType<typeof createAdminClient>): Promise<number> {
   const probe = await supabase.from("products").select("cost_price").limit(1);
   if (probe.error) return 0;

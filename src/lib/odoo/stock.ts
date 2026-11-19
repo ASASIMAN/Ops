@@ -94,3 +94,23 @@ export async function fetchProductCosts(): Promise<Map<number, number> | null> {
     return null;
   }
 }
+
+/**
+ * Each variant's "Available in POS" flag (from its template) and whether
+ * it's archived, keyed by Odoo product id. Same reach as the product sync.
+ * null when it can't be read - the caller carries on without it.
+ */
+export async function fetchProductPosFlags(): Promise<Map<number, { pos: boolean; active: boolean }> | null> {
+  try {
+    const rows = await searchRead<{ id: number; available_in_pos: boolean; active: boolean }>(
+      "product.product",
+      [],
+      ["id", "available_in_pos", "active"],
+      { context: await allCompaniesContext({ active_test: false }) },
+    );
+    return new Map(rows.map((r) => [r.id, { pos: !!r.available_in_pos, active: !!r.active }]));
+  } catch (error) {
+    console.error("[sync] POS availability not readable:", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
