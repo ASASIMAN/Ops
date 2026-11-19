@@ -484,7 +484,9 @@ moves their existing orders onto the live store. The sync stores any
 later order for a merged config against the live store, and links a
 newly seen config the same way when it is inserted. Run
 `0047_store_merges.sql` in the Supabase SQL editor; until then the sync
-applies the name rule on its own. To load the history, use
+applies the name rule on its own.
+
+To load the history, use
 **Load sales history from Odoo** under the stat tiles on `/forecast`
 (defaults to Nov 2025; 14-day windows from the browser, keep the page
 open; safe to re-run). It ends with orders found per month - if months
@@ -492,6 +494,19 @@ before July still come back as 0, the API user isn't a member of the
 old company in Odoo (Settings > Users > Allowed Companies), or Odoo has
 no POS orders for them. Products the old company re-created under new
 template ids show up as "Name (#id)" until added to `style_merges`.
+
+**Product list = what's sold in the POS (migration 0048).** The
+`/forecast` product search lists only styles with at least one variant
+that has Odoo's "Available in POS" ticked and isn't archived, so
+services, samples, cost lines ("[OTHER] Building Costs") and archived
+items drop out. `products.available_in_pos` and `products.odoo_active`
+are copied from Odoo on every stock sync and every sales sync's
+catalogue refresh (`saveProductPosFlags`); until the first sync after
+the migration, the list shows everything as before. A hidden (not in
+POS) style with exactly the same name as one listed style is folded into
+it for history - the company-profile duplicate case - while two listed
+styles sharing a name still show apart as "Name (#id)". The budget
+planner's product list is unchanged.
 
 The forecasting module's main screen: a filter row (product type-ahead,
 colour/size/store, an optional "+ Compare" second product, Past/Next

@@ -206,7 +206,8 @@ export default async function ForecastChartPage({
   const HIDDEN_STORE_NAMES = new Set(["nsa"]);
   const stores = (storeRows ?? []).filter((s) => !HIDDEN_STORE_NAMES.has(s.name.trim().toLowerCase()));
 
-  const styleOptions = await fetchStyleOptions(supabase, merges);
+  // Only products sold in the POS (Odoo's "Available in POS", not archived) - see fetchStyleOptions.
+  const styleOptions = await fetchStyleOptions(supabase, merges, { posOnly: true });
   if (!styleOptions.length) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-16">

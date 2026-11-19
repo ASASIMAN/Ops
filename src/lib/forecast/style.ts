@@ -59,47 +59,87 @@ export function templateIdGroup(canonicalTemplateId: number, merges: StyleMergeM
 }
 
 /**
- * One row per canonical Odoo template (style), after resolving
- * `style_merges`. Any name collision that *isn't* explained by an entry
- * in that table - a different, unexplained duplicate - still gets its
- * template id appended to every one of its entries instead of being
- * merged into a single guessed "real" one. A plain-text `<datalist>`
- * can't tell two identically-labelled options apart, so an unflagged
- * collision would make one of them silently unreachable.
+ * The product list for a picker, one entry per style (Odoo template, with
+ * merged templates folded into their canonical one).
+ *
+ * `posOnly` (the /forecast product search) lists only styles with at least
+ * one variant that is "Available in POS" and not archived in Odoo
+ * (migration 0048) - leaving out services, samples, cost lines and archived
+ * products. While those flags haven't been synced yet (column missing or
+ * every row null) it lists everything, as before.
+ *
+ * With `posOnly`, a style that isn't listed but has exactly the same name
+ * as one listed style is the same product re-created by the company-profile
+ * change (confirmed by the business): it is folded into the listed style by
+ * adding it to `merges` - the map passed in is extended - so the listed
+ * style keeps that history. Two *listed* styles sharing a name are still
+ * shown apart, with their template id appended (a plain-text `<datalist>`
+ * can't tell identical labels apart, so one would be unreachable).
  */
-export async function fetchStyleOptions(supabase: SupabaseClient, merges: StyleMergeMap): Promise<StyleOption[]> {
+export async function fetchStyleOptions(
+  supabase: SupabaseClient,
+  merges: StyleMergeMap,
+  { posOnly = false }: { posOnly?: boolean } = {},
+): Promise<StyleOption[]> {
+  type Row = { id: number; odoo_template_id: number; name: string; available_in_pos?: boolean | null; odoo_active?: boolean | null };
   // Paged: the products table has one row per variant and can exceed the API's 1000-row page.
-  const data: { id: number; odoo_template_id: number; name: string }[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data: page } = await supabase
-      .from("products")
-      .select("id, odoo_template_id, name")
-      .order("name")
-      .order("id")
-      .range(from, from + 999);
-    data.push(...(page ?? []));
-    if (!page || page.length < 1000) break;
+  const readAll = async (cols: string) => {
+    const rows: Row[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data: page, error } = await supabase
+        .from("products")
+        .select(cols)
+        .order("name")
+        .order("id")
+        .range(from, from + 999);
+      if (error) return null;
+      rows.push(...((page ?? []) as unknown as Row[]));
+      if (!page || page.length < 1000) break;
+    }
+    return rows;
+  };
+  const data = (posOnly ? await readAll("id, odoo_template_id, name, available_in_pos, odoo_active") : null) ?? (await readAll("id, odoo_template_id, name")) ?? [];
+
+  const posKnown = posOnly && data.some((r) => r.available_in_pos != null);
+  const listed = new Set<number>();
+  for (const r of data) {
+    if (!posKnown || (r.available_in_pos && r.odoo_active !== false)) listed.add(toCanonicalTemplateId(r.odoo_template_id, merges));
+  }
+
+  if (posKnown) {
+    const nameOf = new Map<number, string>();
+    for (const r of data) {
+      const canonical = toCanonicalTemplateId(r.odoo_template_id, merges);
+      if (!nameOf.has(canonical)) nameOf.set(canonical, r.name);
+    }
+    const listedByName = new Map<string, number[]>();
+    for (const t of listed) {
+      const key = nameOf.get(t)!.trim().toLowerCase();
+      listedByName.set(key, [...(listedByName.get(key) ?? []), t]);
+    }
+    for (const [hidden, name] of nameOf) {
+      if (listed.has(hidden)) continue;
+      const targets = listedByName.get(name.trim().toLowerCase());
+      if (targets?.length !== 1) continue;
+      for (const [raw, canonical] of merges.canonicalByRaw) {
+        if (canonical === hidden) merges.canonicalByRaw.set(raw, targets[0]);
+      }
+      merges.canonicalByRaw.set(hidden, targets[0]);
+    }
   }
 
   const byTemplate = new Map<number, string>();
+  const productIdsByTemplate = new Map<number, number[]>();
   for (const r of data) {
     const canonical = toCanonicalTemplateId(r.odoo_template_id, merges);
+    if (!listed.has(canonical)) continue;
     if (!byTemplate.has(canonical)) byTemplate.set(canonical, r.name);
+    productIdsByTemplate.set(canonical, [...(productIdsByTemplate.get(canonical) ?? []), r.id]);
   }
 
   const templateIdsByName = new Map<string, number[]>();
   for (const [templateId, name] of byTemplate) {
-    const list = templateIdsByName.get(name) ?? [];
-    list.push(templateId);
-    templateIdsByName.set(name, list);
-  }
-
-  const productIdsByTemplate = new Map<number, number[]>();
-  for (const r of data) {
-    const canonical = toCanonicalTemplateId(r.odoo_template_id, merges);
-    const list = productIdsByTemplate.get(canonical) ?? [];
-    list.push(r.id);
-    productIdsByTemplate.set(canonical, list);
+    templateIdsByName.set(name, [...(templateIdsByName.get(name) ?? []), templateId]);
   }
 
   return Array.from(byTemplate.entries())
