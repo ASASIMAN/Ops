@@ -937,13 +937,16 @@ export default async function ForecastChartPage({
                       {chartSeries.map(({ s, history, forecastShown, color }) => {
                         const actualPts: Point[] = history.map((p) => ({ x: xFor(historyIdx.get(p.date)!), y: yFor(p.value) }));
                         const origin = forecastOrigin(s);
-                        const expectedLine: Point[] = [origin, ...forecastShown.map((f, i) => ({ x: xFor(forecastStartIdx + i), y: yFor(f.expected) }))];
+                        // One continuous line: the solid actual line runs on from the last full month to this month so far (MTD), and the dashed line picks up from MTD through the projected full month into the forecast.
+                        const mtdPt: Point = { x: xFor(todayIdx), y: yFor(s.mtd.mtdUnits) };
+                        const actualLine: Point[] = [...actualPts, mtdPt];
+                        const expectedLine: Point[] = [mtdPt, origin, ...forecastShown.map((f, i) => ({ x: xFor(forecastStartIdx + i), y: yFor(f.expected) }))];
                         const bandTop: Point[] = [origin, ...forecastShown.map((f, i) => ({ x: xFor(forecastStartIdx + i), y: yFor(f.high) }))];
                         const bandBottom: Point[] = [origin, ...forecastShown.map((f, i) => ({ x: xFor(forecastStartIdx + i), y: yFor(f.low) }))];
                         return (
                           <g key={s.key}>
                             <path d={smoothBandPath(bandTop, bandBottom)} fill={color} opacity={0.12} />
-                            <path d={smoothPath(actualPts)} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" />
+                            <path d={smoothPath(actualLine)} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" />
                             <path d={smoothPath(expectedLine)} fill="none" stroke={color} strokeWidth={2} strokeDasharray="5 4" />
                             {actualPts.map((pt, i) => (
                               <circle key={history[i].date} cx={pt.x} cy={pt.y} r={4} fill={color} stroke="#fff" strokeWidth={2} />
@@ -972,7 +975,7 @@ export default async function ForecastChartPage({
                   </div>
                 </div>
                 <p className="fc-card-sub">
-                  Filled point = actual, hollow = projected or forecast. A small square under the axis marks a month with a recorded stockout day.
+                  Filled point = actual, hollow = projected or forecast. MTD is this month so far; the dashed line from it runs through the projected full month into the forecast. A small square under the axis marks a month with a recorded stockout day.
                   {series.some((s) => s.backtestMape != null) && (
                     <>
                       {" "}Backtest over the last 3 months:{" "}
