@@ -476,12 +476,29 @@ export default async function ForecastChartPage({
     .maybeSingle();
   const stockSyncedAt = planStockLevels.rows.reduce<string | null>((latest, r) => (!latest || r.syncedAt > latest ? r.syncedAt : latest), null);
   const returnTo = `/forecast?${new URLSearchParams(Object.entries(params).filter((e): e is [string, string] => typeof e[1] === "string" && !!e[1])).toString()}`;
+  // Per-store split for the stock tile, in this fixed order; store stock whose location isn't linked to one of these four lands in "Other".
+  const STOCK_STORES = [
+    { slug: "pererenan", label: "Pererenan" },
+    { slug: "canggu", label: "Canggu" },
+    { slug: "nusa-dua", label: "Nusa Dua" },
+    { slug: "ubud", label: "Ubud" },
+  ];
+  const { data: stockStoreRows } = await supabase.from("stores").select("id, slug").in("slug", STOCK_STORES.map((s) => s.slug));
+  const slugByStoreId = new Map((stockStoreRows ?? []).map((r) => [r.id as number, r.slug as string]));
+  const stockBySlug = new Map<string, number>();
+  let planStockOtherStores = 0;
   let planStockOffice = 0;
   let planStockStores = 0;
   for (const r of planStockLevels.rows) {
     if (!primaryVariants.map((v) => v.productId).includes(r.productId)) continue;
-    if (r.kind === "office") planStockOffice += r.qty;
-    else planStockStores += r.qty;
+    if (r.kind === "office") {
+      planStockOffice += r.qty;
+      continue;
+    }
+    planStockStores += r.qty;
+    const slug = r.storeId != null ? slugByStoreId.get(r.storeId) : undefined;
+    if (slug) stockBySlug.set(slug, (stockBySlug.get(slug) ?? 0) + r.qty);
+    else planStockOtherStores += r.qty;
   }
   const planOpenPoLines = primaryLeadTimeProductId ? await fetchOpenPoLines(supabase, primaryLeadTimeProductId, primaryLeadTimeResolution) : [];
   const arrivalDateLate = addDaysIso(todayIso, primaryLeadTimeResolution.maxDays);
@@ -754,9 +771,25 @@ export default async function ForecastChartPage({
               {unitFormatter.format(totalStock)}
               <span className="fc-tile-unit">units</span>
             </div>
-            <div className="fc-tile-label">
-              Stock on hand · office {unitFormatter.format(planStockOffice)}, stores {unitFormatter.format(planStockStores)}
-            </div>
+            <div className="fc-tile-label">Stock on hand</div>
+            <dl className="fc-stock-split">
+              <div>
+                <dt>Office</dt>
+                <dd>{unitFormatter.format(planStockOffice)}</dd>
+              </div>
+              {STOCK_STORES.map((st) => (
+                <div key={st.slug}>
+                  <dt>{st.label}</dt>
+                  <dd>{unitFormatter.format(stockBySlug.get(st.slug) ?? 0)}</dd>
+                </div>
+              ))}
+              {planStockOtherStores !== 0 && (
+                <div>
+                  <dt>Other</dt>
+                  <dd>{unitFormatter.format(planStockOtherStores)}</dd>
+                </div>
+              )}
+            </dl>
           </div>
 
           <div className="fc-card fc-tile">
