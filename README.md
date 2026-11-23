@@ -502,10 +502,15 @@ services, samples, cost lines ("[OTHER] Building Costs") and archived
 items drop out. `products.available_in_pos` and `products.odoo_active`
 are copied from Odoo on every stock sync and every sales sync's
 catalogue refresh (`saveProductPosFlags`); until the first sync after
-the migration, the list shows everything as before. A hidden (not in
-POS) style with exactly the same name as one listed style is folded into
-it for history - the company-profile duplicate case - while two listed
-styles sharing a name still show apart as "Name (#id)". The budget
+the migration, the list shows everything as before. Styles sharing a
+name (case and spacing ignored) are merged into one entry - the
+company-profile duplicates, confirmed by the business to be the same
+product - whether or not each copy is still in the POS; the merged entry
+uses the lowest listed template id and includes every copy's sales,
+stock and lead-time links. A per-variant product the old company
+created as its own product, named "Base - (Colour,Size)", joins "Base"
+when a product named exactly "Base" exists (its colour and size are read
+from the brackets, since it has no Odoo attributes). The budget
 planner's product list is unchanged.
 
 The forecasting module's main screen: a filter row (product type-ahead,
