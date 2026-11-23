@@ -58,6 +58,9 @@ export function templateIdGroup(canonicalTemplateId: number, merges: StyleMergeM
   return [canonicalTemplateId, ...merged];
 }
 
+/** " - (Brown,L)" at the end of a product name: the old company's per-variant products. */
+const VARIANT_SUFFIX = /\s+-\s+\(([^()]*)\)\s*$/;
+
 /**
  * The product list for a picker, one entry per style (Odoo template, with
  * merged templates folded into their canonical one).
@@ -68,13 +71,14 @@ export function templateIdGroup(canonicalTemplateId: number, merges: StyleMergeM
  * products. While those flags haven't been synced yet (column missing or
  * every row null) it lists everything, as before.
  *
- * With `posOnly`, a style that isn't listed but has exactly the same name
- * as one listed style is the same product re-created by the company-profile
- * change (confirmed by the business): it is folded into the listed style by
- * adding it to `merges` - the map passed in is extended - so the listed
- * style keeps that history. Two *listed* styles sharing a name are still
- * shown apart, with their template id appended (a plain-text `<datalist>`
- * can't tell identical labels apart, so one would be unreachable).
+ * With `posOnly`, styles that share a name (case and spacing ignored) are
+ * the same product re-created by the company-profile change (confirmed by
+ * the business) and are merged into one entry, whether or not each copy is
+ * still in the POS: they're added to `merges` - the map passed in is
+ * extended - so the merged style keeps every copy's sales, stock and
+ * links. Without `posOnly` (the budget planner) an unexplained name
+ * collision still shows apart with its template id appended, since a
+ * plain-text `<datalist>` can't tell identical labels apart.
  */
 export async function fetchStyleOptions(
   supabase: SupabaseClient,
@@ -106,25 +110,46 @@ export async function fetchStyleOptions(
     if (!posKnown || (r.available_in_pos && r.odoo_active !== false)) listed.add(toCanonicalTemplateId(r.odoo_template_id, merges));
   }
 
-  if (posKnown) {
+  if (posOnly) {
+    // Same name = same product (confirmed by the business: the company-
+    // profile change re-created products under new template ids, and the
+    // copies can both still be active and in the POS). Every style sharing
+    // a name - case and spacing ignored - is merged into one: the lowest
+    // listed template id, so the merged style stays in the list.
+    const nameKey = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
     const nameOf = new Map<number, string>();
     for (const r of data) {
       const canonical = toCanonicalTemplateId(r.odoo_template_id, merges);
       if (!nameOf.has(canonical)) nameOf.set(canonical, r.name);
     }
-    const listedByName = new Map<string, number[]>();
-    for (const t of listed) {
-      const key = nameOf.get(t)!.trim().toLowerCase();
-      listedByName.set(key, [...(listedByName.get(key) ?? []), t]);
+    // A per-variant product the old company created as its own product,
+    // named "Base - (Colour,Size)", belongs with "Base" - but only when a
+    // product named exactly "Base" exists; otherwise its name stands.
+    const allKeys = new Set(Array.from(nameOf.values(), nameKey));
+    const groupKey = (name: string) => {
+      const m = VARIANT_SUFFIX.exec(name);
+      const base = m ? nameKey(name.slice(0, m.index)) : null;
+      return base && allKeys.has(base) ? base : nameKey(name);
+    };
+    const groups = new Map<string, number[]>();
+    for (const [templateId, name] of nameOf) {
+      const key = groupKey(name);
+      groups.set(key, [...(groups.get(key) ?? []), templateId]);
     }
-    for (const [hidden, name] of nameOf) {
-      if (listed.has(hidden)) continue;
-      const targets = listedByName.get(name.trim().toLowerCase());
-      if (targets?.length !== 1) continue;
-      for (const [raw, canonical] of merges.canonicalByRaw) {
-        if (canonical === hidden) merges.canonicalByRaw.set(raw, targets[0]);
+    for (const [key, group] of groups) {
+      if (group.length < 2) continue;
+      // Prefer a listed template carrying the plain name, so the entry reads "Base", not "Base - (Brown,L)".
+      const plain = group.filter((t) => listed.has(t) && nameKey(nameOf.get(t)!) === key);
+      const target = Math.min(...(plain.length ? plain : group.filter((t) => listed.has(t))));
+      if (!Number.isFinite(target)) continue; // none of them sold in the POS
+      for (const t of group) {
+        if (t === target) continue;
+        for (const [raw, canonical] of merges.canonicalByRaw) {
+          if (canonical === t) merges.canonicalByRaw.set(raw, target);
+        }
+        merges.canonicalByRaw.set(t, target);
+        listed.delete(t);
       }
-      merges.canonicalByRaw.set(hidden, targets[0]);
     }
   }
 
@@ -164,9 +189,17 @@ export async function fetchStyleVariants(
 ): Promise<StyleVariant[]> {
   const { data } = await supabase
     .from("products")
-    .select("id, color, size")
+    .select("id, color, size, name")
     .in("odoo_template_id", templateIdGroup(templateId, merges));
-  return (data ?? []).map((r) => ({ productId: r.id, color: r.color, size: r.size }));
+  return (data ?? []).map((r) => {
+    // An old per-variant product ("Base - (Brown,L)", see fetchStyleOptions)
+    // has no colour/size attributes in Odoo; its name carries them instead.
+    if (!r.color && !r.size) {
+      const parts = VARIANT_SUFFIX.exec(r.name)?.[1].split(",").map((p: string) => p.trim());
+      if (parts?.length === 2 && parts[0] && parts[1]) return { productId: r.id, color: parts[0], size: parts[1] };
+    }
+    return { productId: r.id, color: r.color, size: r.size };
+  });
 }
 
 /** Net units per month (sales minus returns) for a style, optionally restricted to a subset of variants (colour/size drill-down) and stores. Net because order_lines.qty already carries a negative sign on refund lines at the same grain - summing it is already net, not gross. */
