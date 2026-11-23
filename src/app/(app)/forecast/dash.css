@@ -490,3 +490,24 @@ body:has(.fc-dash) header .text-zinc-400 {
   font-size: 0.875rem;
   font-weight: 500;
 }
+
+/* Stock tile: office and each store, one line each. */
+.fc-stock-split {
+  margin-top: 0.5rem;
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+.fc-stock-split > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.fc-stock-split dt {
+  color: var(--fc-ink-2);
+}
+.fc-stock-split dd {
+  font-weight: 500;
+  color: var(--fc-ink);
+}
