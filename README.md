@@ -495,6 +495,21 @@ old company in Odoo (Settings > Users > Allowed Companies), or Odoo has
 no POS orders for them. Products the old company re-created under new
 template ids show up as "Name (#id)" until added to `style_merges`.
 
+**Stock vs forecast sales card.** Replaces the "Projected stock" bars.
+One row per month the sales chart shows - the rest of this month
+(projected full month minus sold so far), then each forecast month - with
+forecast sales, any open PO arriving (late ETA), and stock left at month
+end, flagged "Below safety" or "Out" (with the shortfall). Above it, a
+restock alert: the date stock is projected to drop below safety stock,
+minus the late lead time, as "Restock by <date>" (amber within 30 days),
+"Restock now" when that's already past, or "No restock needed yet". The
+projection (`projectStockByMonth` in `planner.ts`) draws stock down by
+the monthly forecast rather than one flat rate, so it follows the
+forecast line; it is always for the whole product across all stores - with
+a colour, size or store filter set, the page fits a separate unfiltered
+forecast for it (the planner uses that one too). The stock tile's
+"order by" badge reads the same projection.
+
 **Product list = what's sold in the POS (migration 0048).** The
 `/forecast` product search lists only styles with at least one variant
 that has Odoo's "Available in POS" ticked and isn't archived, so

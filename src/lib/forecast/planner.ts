@@ -358,3 +358,49 @@ export async function buildPoGrid(
   }));
 }
 
+
+/**
+ * Like projectStockTrajectory, but drawn down by the monthly forecast
+ * instead of one flat rate, so the projection follows the same numbers as
+ * the forecast line on /forecast. `months[0]` is the current month, with
+ * `units` = forecast sales still to come this month (after today); the
+ * rest are whole months. Each month's units are spread evenly over its
+ * days. Open POs step stock up at their ETA: `low` at the late ETA,
+ * `high` at the early one. Not floored at 0 - a negative value is the
+ * shortfall.
+ */
+export function projectStockByMonth(
+  currentStock: number,
+  months: { monthIso: string; units: number }[],
+  openPoLines: { qtyOpen: number; resolvedEtaEarliest: string; resolvedEtaLatest: string }[],
+  startDateIso: string,
+): TrajectoryPoint[] {
+  const DAY = 24 * 60 * 60 * 1000;
+  const startMs = new Date(`${startDateIso}T00:00:00Z`).getTime();
+  const dailyByMonth = new Map<string, number>();
+  months.forEach((m, i) => {
+    const d = new Date(`${m.monthIso}T00:00:00Z`);
+    const monthEndMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0);
+    const days = i === 0 ? Math.max(1, Math.round((monthEndMs - startMs) / DAY)) : new Date(monthEndMs).getUTCDate();
+    dailyByMonth.set(m.monthIso.slice(0, 7), m.units / days);
+  });
+  const last = months[months.length - 1];
+  if (!last) return [{ date: startDateIso, low: currentStock, high: currentStock }];
+  const lastD = new Date(`${last.monthIso}T00:00:00Z`);
+  const endMs = Date.UTC(lastD.getUTCFullYear(), lastD.getUTCMonth() + 1, 0);
+
+  const points: TrajectoryPoint[] = [];
+  let demand = 0;
+  for (let ms = startMs; ms <= endMs; ms += DAY) {
+    const dateIso = new Date(ms).toISOString().slice(0, 10);
+    if (ms > startMs) demand += dailyByMonth.get(dateIso.slice(0, 7)) ?? 0;
+    let landedLow = 0;
+    let landedHigh = 0;
+    for (const po of openPoLines) {
+      if (po.resolvedEtaLatest <= dateIso) landedLow += po.qtyOpen;
+      if (po.resolvedEtaEarliest <= dateIso) landedHigh += po.qtyOpen;
+    }
+    points.push({ date: dateIso, low: currentStock - demand + landedLow, high: currentStock - demand + landedHigh });
+  }
+  return points;
+}
