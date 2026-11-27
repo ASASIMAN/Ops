@@ -29,7 +29,7 @@ import {
   computePlanner,
   computeWhatIf,
   buildPoGrid,
-  projectStockTrajectory,
+  projectStockByMonth,
   computeOrderByDate,
   coverStatus,
   type OpenPoLine,
@@ -52,6 +52,7 @@ const DEFAULT_LOW_VOLUME_THRESHOLD = 10;
 
 const unitFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const stockSyncFormatter = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Makassar", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const dayFormatter = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" });
 const monthLabelFormatter = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", month: "short" });
 const monthYearLabelFormatter = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", month: "short", year: "numeric" });
 
@@ -223,7 +224,8 @@ export default async function ForecastChartPage({
   const compareNotFound = !!params.compareProduct && !compareStyle;
 
   const storeId = params.store && params.store !== "all" ? Number(params.store) : null;
-  const storeIdsForSales = storeId ? [storeId] : null;
+  const storeIdsForSalesFilter = storeId ? [storeId] : null;
+  const storeIdsForSales = storeIdsForSalesFilter;
   const pastMonthsParam = Number(params.past);
   const pastMonths = PAST_OPTIONS.includes(pastMonthsParam as (typeof PAST_OPTIONS)[number]) ? pastMonthsParam : 12;
   const coverageMonths = Math.max(1, Number(params.coverageMonths) || 2);
@@ -305,9 +307,11 @@ export default async function ForecastChartPage({
   const nextMonths = NEXT_OPTIONS.includes(nextMonthsParam as (typeof NEXT_OPTIONS)[number]) ? nextMonthsParam : nextMonthsDefault;
   const forecastHorizonMonths = Math.max(nextMonths, computedN);
 
-  async function buildSeries(key: string, label: string, style: StyleOption, variants: StyleVariant[]): Promise<SeriesData> {
+  /** `wholeProduct`: ignore the colour, size and store filters (every variant, all stores) - what stock and restock planning need. */
+  async function buildSeries(key: string, label: string, style: StyleOption, variants: StyleVariant[], wholeProduct = false): Promise<SeriesData> {
     const styleProductIds = variants.map((v) => v.productId);
-    const filteredProductIds = filterVariants(variants).map((v) => v.productId);
+    const filteredProductIds = wholeProduct ? styleProductIds : filterVariants(variants).map((v) => v.productId);
+    const storeIdsForSales = wholeProduct ? null : storeIdsForSalesFilter;
 
     // Forecast is always fit on the FULL style (never the filtered colour/size
     // subset, which would be a much sparser series) and then scaled down by
@@ -321,7 +325,7 @@ export default async function ForecastChartPage({
     const forecastResult: ForecastResult = { ...rawForecast, forecast: rawForecast.forecast.map((f, i) => ({ ...f, date: monthStart(today, i) })) };
 
     let drilldownFraction: number | null = 1;
-    if (colorFilter || sizeFilter) {
+    if (!wholeProduct && (colorFilter || sizeFilter)) {
       const shares = await fetchAllocationShares(supabase, variants, today.toISOString(), aliases);
       const colorFrac = colorFilter ? shares.colorShare.get(colorFilter) : 1;
       const sizeFrac = sizeFilter ? shares.sizeShare.get(sizeFilter) : 1;
@@ -403,6 +407,9 @@ export default async function ForecastChartPage({
     compareSeries = await buildSeries("compare", compareStyle.name, compareStyle, compareVariants);
   }
   const series = [primarySeries, ...(compareSeries ? [compareSeries] : [])];
+  // Stock and restock planning are for the whole product across all stores, so they read an unfiltered forecast - the chart's own when nothing is filtered.
+  const planSeries =
+    colorFilter || sizeFilter || storeId ? await buildSeries("plan", primaryStyle.name, primaryStyle, primaryVariants, true) : primarySeries;
 
   const isEmpty = primarySeries.monthlySeries.every((p) => p.value === 0) && primarySeries.mtd.mtdUnits === 0;
   const avgMonthly = primarySeries.monthlySeries.length
@@ -505,8 +512,8 @@ export default async function ForecastChartPage({
   const openPoBeforeArrival = planOpenPoLines.filter((l) => l.resolvedEtaLatest <= arrivalDateLate).reduce((sum, l) => sum + l.qtyOpen, 0);
 
   // Planner always reads the FULL style's own forecast (not a colour/size-scaled one) - the plan is for the whole product.
-  const planDailyForecastRate = (primarySeries.forecastResult.forecast[0]?.expected ?? 0) / 30;
-  const planDailyForecastStdDev = primarySeries.forecastResult.residualStdDev / Math.sqrt(30);
+  const planDailyForecastRate = (planSeries.forecastResult.forecast[0]?.expected ?? 0) / 30;
+  const planDailyForecastStdDev = planSeries.forecastResult.residualStdDev / Math.sqrt(30);
 
   const plannerCalc = computePlanner({
     currentStockOffice: planStockOffice,
@@ -525,8 +532,13 @@ export default async function ForecastChartPage({
     whatIfQty != null && whatIfQty > 0
       ? [{ poNo: "what-if", poDate: todayIso, qtyOpen: whatIfQty, resolvedEtaEarliest: addDaysIso(todayIso, primaryLeadTimeResolution.minDays), resolvedEtaLatest: arrivalDateLate }]
       : [];
-  const miniHorizonDays = forecastHorizonMonths * 30;
-  const trajectory = projectStockTrajectory(planStockOffice + planStockStores, planDailyForecastRate, [...planOpenPoLines, ...whatIfPoLines], todayIso, miniHorizonDays);
+  // Stock minus forecast sales, month by month - the same numbers as the forecast line: the rest of this month (projected full month minus sold so far), then each forecast month.
+  const planMonths = [
+    { monthIso: currentMonthIso, units: Math.max(0, planSeries.mtd.projectedFullMonthUnits - planSeries.mtd.mtdUnits) },
+    ...planSeries.upliftedForecast.map((f) => ({ monthIso: f.date, units: f.expected })),
+  ];
+  const trajectory = projectStockByMonth(planStockOffice + planStockStores, planMonths, [...planOpenPoLines, ...whatIfPoLines], todayIso);
+  const stockoutPoint = trajectory.find((p) => p.low <= 0) ?? null;
   const orderBy = computeOrderByDate(trajectory, plannerCalc.safetyStock, primaryLeadTimeResolution.maxDays, todayIso);
 
   const planAllocationShares = await fetchAllocationShares(supabase, primaryVariants, today.toISOString(), aliases);
@@ -590,38 +602,37 @@ export default async function ForecastChartPage({
     return { xPct: (xFor(i) / CHART_W) * 100, title, rows };
   });
 
-  // --- Stock chart (bars, one per month-end) ---
-  const STOCK_W = 360;
-  const STOCK_H = 320;
-  const sPadL = 44;
-  const sPadR = 12;
-  const sPadT = 32;
-  const sPadB = 28;
-  const sPlotW = STOCK_W - sPadL - sPadR;
-  const sPlotH = STOCK_H - sPadT - sPadB;
-  const stockMonths = [currentMonthIso, ...xPoints.slice(forecastStartIdx).map((p) => p.monthIso)];
-  const stockSlotW = sPlotW / stockMonths.length;
-  const stockBarW = Math.min(24, stockSlotW * 0.6);
-  const sXFor = (i: number) => sPadL + stockSlotW * (i + 0.5);
-  const stockBars = stockMonths.map((m) => {
-    const p = sampleTrajectory(trajectory, endOfMonthIso(m));
-    return { monthIso: m, low: p?.low ?? 0, high: p?.high ?? 0 };
+  // --- Stock vs forecast sales: one row per month the sales chart shows (this month, then its forecast months) ---
+  const allPoLines = [...planOpenPoLines, ...whatIfPoLines];
+  const stockRows = planMonths.slice(0, 1 + nextMonths).map((m, i) => {
+    const end = sampleTrajectory(trajectory, endOfMonthIso(m.monthIso))?.low ?? 0;
+    // This month's row also takes open POs whose ETA has already passed (still not received), which the projection counts from today.
+    const arriving = allPoLines
+      .filter((l) => (i === 0 || l.resolvedEtaLatest >= m.monthIso) && l.resolvedEtaLatest <= endOfMonthIso(m.monthIso))
+      .reduce((sum, l) => sum + l.qtyOpen, 0);
+    const status: "out" | "below" | "ok" = end <= 0 ? "out" : end < plannerCalc.safetyStock ? "below" : "ok";
+    return { monthIso: m.monthIso, sales: m.units, arriving, end, status };
   });
-  const maxStock = Math.max(1, ...stockBars.map((b) => b.low), plannerCalc.safetyStock);
-  const sStep = niceStep(maxStock / 4);
-  const sTicks = Math.max(1, Math.ceil(maxStock / sStep));
-  const sYMax = sStep * sTicks;
-  const sYFor = (v: number) => sPadT + sPlotH - (Math.min(v, sYMax) / sYMax) * sPlotH;
-  const crossingMonth = orderBy.crossesSafetyStockDate ? `${orderBy.crossesSafetyStockDate.slice(0, 7)}-01` : null;
-  const stockSlots: HoverSlot[] = stockBars.map((b, i) => ({
-    xPct: (sXFor(i) / STOCK_W) * 100,
-    title: `End of ${monthYearName(b.monthIso)}`,
-    rows: [
-      { value: unitFormatter.format(b.low), label: b.high > b.low ? "units, if open POs land late" : "units projected" },
-      ...(b.high > b.low ? [{ value: unitFormatter.format(b.high), label: "units, if they land early" }] : []),
-      { value: unitFormatter.format(plannerCalc.safetyStock), label: "safety stock" },
-    ],
-  }));
+  const daysUntil = (iso: string) => Math.round((new Date(`${iso}T00:00:00Z`).getTime() - new Date(`${todayIso}T00:00:00Z`).getTime()) / DAY_MS);
+  const dayName = (iso: string) => dayFormatter.format(new Date(`${iso}T00:00:00Z`));
+  const lastPlanMonth = planMonths[planMonths.length - 1]?.monthIso ?? currentMonthIso;
+  const restockAlert: { tone: "bad" | "warn" | "ok"; title: string; detail: string } = orderBy.crossesSafetyStockDate
+    ? orderBy.alreadyLate
+      ? {
+          tone: "bad",
+          title: "Restock now",
+          detail: `Stock is projected to drop below the safety level (${unitFormatter.format(plannerCalc.safetyStock)} units) around ${dayName(orderBy.crossesSafetyStockDate)}${stockoutPoint ? ` and run out around ${dayName(stockoutPoint.date)}` : ""} - sooner than a PO placed today can arrive (${primaryLeadTimeResolution.minDays}-${primaryLeadTimeResolution.maxDays} days).`,
+        }
+      : {
+          tone: daysUntil(orderBy.orderByDate!) <= 30 ? "warn" : "ok",
+          title: `Restock by ${dayName(orderBy.orderByDate!)} (in ${daysUntil(orderBy.orderByDate!)} days)`,
+          detail: `Stock is projected to drop below the safety level (${unitFormatter.format(plannerCalc.safetyStock)} units) around ${dayName(orderBy.crossesSafetyStockDate)}${stockoutPoint ? ` and run out around ${dayName(stockoutPoint.date)}` : ""}. A PO takes ${primaryLeadTimeResolution.minDays}-${primaryLeadTimeResolution.maxDays} days to arrive, so place it by then.`,
+        }
+    : {
+        tone: "ok",
+        title: "No restock needed yet",
+        detail: `Stock stays above the safety level (${unitFormatter.format(plannerCalc.safetyStock)} units) through ${monthYearName(lastPlanMonth)} at the forecast rate.`,
+      };
 
   // --- "Export data": what the sales chart shows, as CSV ---
   const exportLines = [["Product", "Month", "Type", "Units", "Low", "High"].join(",")];
@@ -1049,58 +1060,61 @@ export default async function ForecastChartPage({
             )}
           </section>
 
-          {/* Projected stock */}
+          {/* Stock vs forecast sales */}
           <section className="fc-card fc-card-pad">
             <h2 className="fc-card-title">
-              Projected stock{" "}
-              <HelpIcon text="Stock on hand at the end of each month: today's stock, minus forecast sales, plus open POs once they arrive (counted at their late ETA). The line is the safety-stock level. The dark bar is the month stock is projected to reach it." />
+              Stock vs forecast sales{" "}
+              <HelpIcon text="Stock on hand today minus forecast sales, month by month, plus open POs when they arrive (counted at their late ETA). Sales are the same forecast as the line chart, for the whole product across all stores. The restock date is when stock is projected to drop below the safety level, minus the supplier lead time." />
             </h2>
             <p className="fc-card-sub">
-              Units on hand at month end{whatIfQty ? `, including a ${unitFormatter.format(whatIfQty)}-unit order placed today` : ""}.
+              Whole product, all stores{whatIfQty ? `, including a ${unitFormatter.format(whatIfQty)}-unit order placed today` : ""}.
             </p>
-            <div className="mt-3">
-              <ChartHover slots={stockSlots} topPct={(sPadT / STOCK_H) * 100} bottomPct={((sPadT + sPlotH) / STOCK_H) * 100} crosshair={false}>
-                <svg viewBox={`0 0 ${STOCK_W} ${STOCK_H}`} className="block h-auto w-full" role="img" aria-label="Projected stock on hand at the end of each month">
-                  {Array.from({ length: sTicks }, (_, i) => sStep * (i + 1)).map((t) => (
-                    <g key={t}>
-                      <line x1={sPadL} x2={STOCK_W - sPadR} y1={sYFor(t)} y2={sYFor(t)} stroke="var(--fc-grid)" strokeWidth={1} />
-                      <text x={sPadL - 8} y={sYFor(t) + 4} textAnchor="end" className="fc-chart-text">{unitFormatter.format(t)}</text>
-                    </g>
-                  ))}
-                  {stockBars.map((b, i) => {
-                    const top = sYFor(b.low);
-                    const base = sYFor(0);
-                    const h = base - top;
-                    const r = Math.min(4, h);
-                    const x0 = sXFor(i) - stockBarW / 2;
-                    const x1 = x0 + stockBarW;
-                    if (h <= 0) return null;
-                    return (
-                      <path
-                        key={b.monthIso}
-                        d={`M${x0},${base} V${top + r} Q${x0},${top} ${x0 + r},${top} H${x1 - r} Q${x1},${top} ${x1},${top + r} V${base} Z`}
-                        fill={b.monthIso === crossingMonth ? "var(--fc-ink)" : "var(--fc-bar)"}
-                      />
-                    );
-                  })}
-                  <line x1={sPadL} x2={STOCK_W - sPadR} y1={sYFor(0)} y2={sYFor(0)} stroke="#c9cad0" strokeWidth={1} />
-                  <line x1={sPadL} x2={STOCK_W - sPadR} y1={sYFor(plannerCalc.safetyStock)} y2={sYFor(plannerCalc.safetyStock)} stroke="var(--fc-bad)" strokeWidth={1.5} />
-                  <text x={STOCK_W - sPadR} y={sYFor(plannerCalc.safetyStock) - 6} textAnchor="end" className="fc-chart-text" style={{ fill: "var(--fc-ink-2)" }}>
-                    Safety stock {unitFormatter.format(plannerCalc.safetyStock)}
-                  </text>
-                  {stockBars.map((b, i) => (
-                    <text key={b.monthIso} x={sXFor(i)} y={STOCK_H - sPadB + 20} textAnchor="middle" className="fc-chart-text">{monthName(b.monthIso)}</text>
-                  ))}
-                </svg>
-              </ChartHover>
+
+            <div className={`fc-alert fc-alert-${restockAlert.tone}`} role="status">
+              <strong>{restockAlert.title}</strong>
+              <span>{restockAlert.detail}</span>
+              {orderBy.crossesSafetyStockDate ? (
+                <span>Suggested order: <strong>{unitFormatter.format(plannerCalc.suggestedPoQty)} units</strong> (see PO planner below).</span>
+              ) : null}
             </div>
-            {orderBy.crossesSafetyStockDate ? (
-              <AssumptionNote bad={orderBy.alreadyLate}>
-                {orderBy.alreadyLate ? "Already late - " : ""}Order by <strong>{orderBy.orderByDate}</strong> to land before stock reaches the safety-stock level (around {orderBy.crossesSafetyStockDate}).
-              </AssumptionNote>
-            ) : (
-              <p className="fc-card-sub">Not projected to reach the safety-stock level within this horizon.</p>
-            )}
+
+            <div className="mt-3 overflow-x-auto">
+              <table className="fc-table fc-stock-table">
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th style={{ textAlign: "right" }}>Forecast sales</th>
+                    {stockRows.some((r) => r.arriving > 0) && <th style={{ textAlign: "right" }}>Arriving</th>}
+                    <th style={{ textAlign: "right" }}>Stock at month end</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Today</td>
+                    <td style={{ textAlign: "right" }}>–</td>
+                    {stockRows.some((r) => r.arriving > 0) && <td style={{ textAlign: "right" }}>–</td>}
+                    <td style={{ textAlign: "right" }}><strong>{unitFormatter.format(planStockOffice + planStockStores)}</strong></td>
+                  </tr>
+                  {stockRows.map((r, i) => (
+                    <tr key={r.monthIso}>
+                      <td>{i === 0 ? `${monthName(r.monthIso)} (rest)` : r.monthIso.slice(5, 7) === "01" ? monthYearName(r.monthIso) : monthName(r.monthIso)}</td>
+                      <td style={{ textAlign: "right" }}>−{unitFormatter.format(r.sales)}</td>
+                      {stockRows.some((x) => x.arriving > 0) && <td style={{ textAlign: "right" }}>{r.arriving > 0 ? `+${unitFormatter.format(r.arriving)}` : "–"}</td>}
+                      <td style={{ textAlign: "right" }}>
+                        <span className="fc-stock-cell">
+                          {r.status !== "ok" && (
+                            <span className={`fc-badge ${r.status === "out" ? "fc-badge-risk" : "fc-badge-low"}`}>{r.status === "out" ? "Out" : "Below safety"}</span>
+                          )}
+                          <strong>{r.end <= 0 ? `0` : unitFormatter.format(r.end)}</strong>
+                        </span>
+                        {r.end < 0 && <div className="fc-card-sub" style={{ marginTop: 0 }}>short {unitFormatter.format(-r.end)}</div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="fc-card-sub">Safety stock: {unitFormatter.format(plannerCalc.safetyStock)} units ({Math.round(serviceLevel * 100)}% service level). Months match the forecast line on the left.</p>
           </section>
         </div>
 
@@ -1146,7 +1160,7 @@ export default async function ForecastChartPage({
               <p className="mt-2 text-sm" style={{ color: "var(--fc-ink-2)" }}>
                 Stock on landing: <strong>{unitFormatter.format(whatIf.stockAfterLanding)}</strong>.{" "}
                 {whatIf.projectedStockoutDate ? <>Projected to run out around <strong>{whatIf.projectedStockoutDate}</strong>.</> : "Not projected to run out within a year at the current forecast rate."}{" "}
-                The Projected stock chart above includes this order.
+                The Stock vs forecast sales table above includes this order.
               </p>
             )}
 

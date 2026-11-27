@@ -511,3 +511,43 @@ body:has(.fc-dash) header .text-zinc-400 {
   font-weight: 500;
   color: var(--fc-ink);
 }
+
+/* Restock alert and the stock-vs-forecast table. */
+.fc-alert {
+  margin-top: 0.9rem;
+  display: grid;
+  gap: 0.2rem;
+  border-radius: 0.5rem;
+  border: 1px solid;
+  padding: 0.7rem 0.85rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+.fc-alert > strong {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+.fc-alert-bad {
+  border-color: #f1c2be;
+  background: var(--fc-bad-bg);
+  color: #8f241f;
+}
+.fc-alert-warn {
+  border-color: #f0d9a4;
+  background: #fdf6e3;
+  color: #7a5200;
+}
+.fc-alert-ok {
+  border-color: #c8e6d2;
+  background: var(--fc-good-bg);
+  color: #155f39;
+}
+.fc-stock-table td,
+.fc-stock-table th {
+  white-space: nowrap;
+}
+.fc-stock-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
